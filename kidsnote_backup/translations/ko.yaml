@@ -4,11 +4,18 @@ configuration:
   password:
     name: 키즈노트 비밀번호
   session_cookie:
-    name: 키즈노트 세션 쿠키
-    description: 2단계 인증 계정은 로그인한 브라우저의 sessionid 값을 입력하세요.
+    name: 키즈노트 세션 쿠키 (sessionid)
+    description: >-
+      아이디와 비밀번호로 로그인할 수 있으면 비워두세요. 2단계 인증을 쓰면 PC에서
+      https://www.kidsnote.com/kr/login 에 로그인한 뒤, F12 → 애플리케이션(Application) →
+      쿠키(Cookies) → www.kidsnote.com에서 sessionid 행의 값(Value)만 복사해 붙여넣으세요.
+      자세한 순서는 앱의 문서 탭에서 확인할 수 있습니다.
   child_ids:
-    name: 백업할 자녀 ID
-    description: 비워두면 계정에 연결된 모든 자녀를 백업합니다.
+    name: 백업할 자녀 ID (숫자)
+    description: >-
+      키즈노트가 자녀에게 부여한 숫자 ID를 입력하세요. 예를 들어 ID가 1234567이면
+      1234567을 입력합니다. 자녀마다 숫자 한 개씩 추가하세요. 비워두면 모든 자녀를
+      백업합니다. ID 확인 방법은 앱의 문서 탭에서 볼 수 있습니다.
   interval_hours:
     name: 백업 간격 (시간)
     description: 앱이 시작되면 한 번 실행하고 이전 백업이 끝난 뒤 이 시간만큼 기다립니다.

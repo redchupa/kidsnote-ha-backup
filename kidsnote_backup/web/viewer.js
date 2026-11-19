@@ -117,7 +117,10 @@ async function renderList(kind, params, signal) {
   const ownerLabel = ["reports", "albums"].includes(kind) ? "자녀" : "기관";
   fillSelect(owner, [
     {id: "", name: "모든 " + ownerLabel},
-    ...data.owners.map(group => ({id: group.id, name: group.name || ownerLabel + " " + group.id})),
+    ...data.owners.map(group => ({
+      id: group.id,
+      name: group.name ? group.name + " (ID " + group.id + ")" : ownerLabel + " ID " + group.id,
+    })),
   ], filters.owner);
   const month = element("select");
   fillSelect(month, [{id: "", name: "모든 달"}, ...data.months.map(day => ({id: day, name: day}))], filters.month);

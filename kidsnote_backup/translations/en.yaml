@@ -4,11 +4,16 @@ configuration:
   password:
     name: Kidsnote password
   session_cookie:
-    name: Kidsnote session cookie
-    description: For two-step verification, enter the sessionid from a signed-in browser.
+    name: Kidsnote session cookie (sessionid)
+    description: >-
+      Leave blank if username and password sign-in works. For two-step verification, sign in at
+      https://www.kidsnote.com/kr/login on a computer, then open F12 → Application → Cookies →
+      www.kidsnote.com and copy only the Value for sessionid. See the Documentation tab for the full steps.
   child_ids:
-    name: Child IDs
-    description: Leave empty to back up all children linked to the account.
+    name: Child IDs (numbers)
+    description: >-
+      Enter the numeric ID assigned by Kidsnote, for example 1234567. Add one number per child.
+      Leave blank to back up all linked children. See the Documentation tab for where to find each ID.
   interval_hours:
     name: Backup interval (hours)
     description: Runs on startup and waits this long after each run.

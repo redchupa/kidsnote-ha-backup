@@ -2,16 +2,35 @@
 
 ## 설정
 
-1. 앱의 **구성** 탭에서 키즈노트 아이디와 비밀번호를 입력하고 저장합니다. 앱은 실행 중 인증 세션을 재사용하며 만료되면 아이디와 비밀번호로 다시 로그인합니다.
-2. 키즈노트 계정에 **2단계 인증**이 켜져 있다면 브라우저에서 직접 로그인합니다. 개발자 도구의 쿠키 목록에서 `www.kidsnote.com`의 `sessionid` 값을 복사해 앱의 **키즈노트 세션 쿠키**에 넣습니다. 만료되면 같은 방법으로 새 값을 저장하고 앱을 재시작합니다.
+1. 앱의 **구성** 탭에서 키즈노트 아이디와 비밀번호를 입력하고 저장합니다. 이 방법으로 로그인할 수 있으면 **세션 쿠키**는 비워두세요. 앱에서 로그인 세션이 만료되면 아이디와 비밀번호로 다시 로그인합니다.
+2. 키즈노트 계정에 **2단계 인증**이 켜져 있다면 아래의 [세션 쿠키 넣기](#세션-쿠키-넣기) 순서를 따라 쿠키 값을 저장합니다.
 3. 앱을 시작합니다. 부팅 후에도 실행하려면 **부팅 시 시작**을 사용합니다. 지금 한 번 백업하려면 앱을 시작하거나 재시작합니다.
 
 | 구성 항목 | 기본 동작 |
 | --- | --- |
-| `child_ids` | 빈 목록이면 계정에 연결된 모든 자녀를 백업합니다. 숫자 ID를 지정하면 해당 자녀만 백업합니다. 첫 실행 후 백업 폴더에서 ID를 확인할 수 있습니다. |
+| `child_ids` | 비워두면 계정에 연결된 모든 자녀를 백업합니다. 특정 자녀만 백업하려면 아래의 [자녀 ID 확인하기](#자녀-id-확인하기)를 참고하세요. |
 | `interval_hours` | 첫 실행 이후 매 백업이 끝난 시점부터 24시간 기다립니다. 1~168시간으로 변경할 수 있습니다. |
 | `include_albums` | 자녀별 앨범을 저장합니다. |
 | `include_notices`, `include_menus` | 백업 대상 자녀의 소속 기관별 공지 및 식단을 저장합니다. |
+
+### 자녀 ID 확인하기
+
+자녀 ID는 키즈노트가 자녀마다 부여한 숫자입니다. 예를 들어 ID가 `1234567`이라면 **백업할 자녀 ID (숫자)** 목록에 `1234567`을 입력하세요. 자녀 이름 대신 숫자 ID를 사용하며, 여러 자녀를 선택할 때는 숫자를 한 개씩 목록에 추가합니다.
+
+- **백업을 시작하기 전**에는 PC 브라우저에서 키즈노트에 로그인한 다음, 같은 브라우저의 새 탭에서 [내 자녀 ID 확인 페이지](https://www.kidsnote.com/api/v1/me/children/)를 엽니다. 화면에 코드처럼 보이는 텍스트가 나오면 해당 자녀의 `name`과 같은 항목에 있는 `id` 숫자를 확인하세요. `enrollment` 안의 기관 ID와 구분해 주세요.
+- **백업한 뒤**에는 Home Assistant에서 **웹 UI 열기 → 알림장 → 자녀**를 눌러 이름 옆 ID를 확인할 수 있습니다. 예를 들어 `테스트 자녀 (ID 1234567)`이라고 표시됩니다.
+
+### 세션 쿠키 넣기
+
+PC의 Chrome 또는 Edge에서 진행합니다.
+
+1. 평소처럼 아이디, 비밀번호, 인증번호를 입력해 로그인합니다. [키즈노트 웹 로그인](https://www.kidsnote.com/kr/login)
+2. 로그인한 화면에서 `F12`를 누르거나, 페이지의 빈 곳을 우클릭해 **검사**를 선택합니다. 화면 옆이나 아래에 브라우저의 개발자 도구가 열립니다.
+3. 개발자 도구의 **애플리케이션(Application)** 탭을 엽니다. 탭이 보이지 않으면 탭 줄 끝의 **»** 또는 **+** 메뉴를 확인하세요. 왼쪽에서 **저장소(Storage) → 쿠키(Cookies) → https://www.kidsnote.com**을 선택합니다.
+4. 표의 **이름(Name)** 열에서 `sessionid` 행을 찾습니다. 해당 행의 **값(Value)** 칸을 두 번 클릭하고 전체 값을 선택해 복사한 뒤 `Esc`를 누릅니다. [Chrome 쿠키 화면 안내](https://developer.chrome.com/docs/devtools/application/cookies/)
+5. Home Assistant의 **Kidsnote Local Backup → 구성 → 키즈노트 세션 쿠키 (sessionid)**에 복사한 값만 붙여넣고 저장합니다. 앱을 시작하세요. 이미 실행 중이거나 쿠키가 만료되어 새 값을 저장했다면 앱을 재시작합니다.
+
+세션 쿠키는 로그인 정보이므로 본인의 Home Assistant 앱 구성에만 입력하세요.
 
 ## 보관함
 
@@ -41,9 +60,9 @@ backup/
 
 ## English
 
-Open **Configuration**, enter your Kidsnote username and password, save, and start the app. For accounts with two-step verification, sign in to Kidsnote in a browser and copy its `sessionid` cookie into `session_cookie`. Replace it and restart the app when it expires.
+Open **Configuration**, enter your Kidsnote username and password, save, and start the app. For two-step verification, sign in from Chrome or Edge on a computer. Press **F12** or right-click and select **Inspect**, then open **Application → Storage → Cookies → https://www.kidsnote.com**. Copy the **Value** from the `sessionid` row into **Kidsnote session cookie (sessionid)**, save, and restart the app. Repeat when it expires. [Kidsnote web sign-in](https://www.kidsnote.com/kr/login)
 
-The app runs at startup and waits 24 hours after each run by default. Use `interval_hours` to change the wait, `child_ids` to select children (empty means all linked children), and the `include_*` settings to control albums, notices, and menus.
+The app runs at startup and waits 24 hours after each run by default. To back up selected children, enter their numeric Kidsnote IDs (for example, `1234567`) in **Child IDs**. After signing in, look for the `id` next to each child's `name` on the linked page, or read the ID next to their name in the archive's child filter after a backup. Leave the list blank to back up every linked child. [Kidsnote child IDs](https://www.kidsnote.com/api/v1/me/children/)
 
 Files are stored in the app's `/config/backup` directory. Open the app's folder in the Samba `app_configs` share (called `addon_configs` on older versions). Each item has metadata and local attachments. Reports, albums and notices also have a `note.txt`. Check `status.json` and the app log for run results. A partial run keeps completed downloads and retries missing files on the next run.
 
