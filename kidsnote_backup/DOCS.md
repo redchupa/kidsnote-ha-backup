@@ -1,4 +1,4 @@
-# Kidsnote Local Backup
+# Kidsnote HA Backup
 
 ## 설정
 
@@ -28,7 +28,7 @@ PC의 Chrome 또는 Edge에서 진행합니다.
 2. 로그인한 화면에서 `F12`를 누르거나, 페이지의 빈 곳을 우클릭해 **검사**를 선택합니다. 화면 옆이나 아래에 브라우저의 개발자 도구가 열립니다.
 3. 개발자 도구의 **애플리케이션(Application)** 탭을 엽니다. 탭이 보이지 않으면 탭 줄 끝의 **»** 또는 **+** 메뉴를 확인하세요. 왼쪽에서 **저장소(Storage) → 쿠키(Cookies) → https://www.kidsnote.com**을 선택합니다.
 4. 표의 **이름(Name)** 열에서 `sessionid` 행을 찾습니다. 해당 행의 **값(Value)** 칸을 두 번 클릭하고 전체 값을 선택해 복사한 뒤 `Esc`를 누릅니다. [Chrome 쿠키 화면 안내](https://developer.chrome.com/docs/devtools/application/cookies/)
-5. Home Assistant의 **Kidsnote Local Backup → 구성 → 키즈노트 세션 쿠키 (sessionid)**에 복사한 값만 붙여넣고 저장합니다. 앱을 시작하세요. 이미 실행 중이거나 쿠키가 만료되어 새 값을 저장했다면 앱을 재시작합니다.
+5. Home Assistant의 **Kidsnote HA Backup → 구성 → 키즈노트 세션 쿠키 (sessionid)**에 복사한 값만 붙여넣고 저장합니다. 앱을 시작하세요. 이미 실행 중이거나 쿠키가 만료되어 새 값을 저장했다면 앱을 재시작합니다.
 
 세션 쿠키는 로그인 정보이므로 본인의 Home Assistant 앱 구성에만 입력하세요.
 

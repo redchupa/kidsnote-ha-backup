@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.2
+
+- Renamed the app and sidebar entry to Kidsnote HA Backup and moved the GitHub address to redchupa/kidsnote-ha-backup.
+- Existing installations can update from their currently registered repository to keep using their archive.
+
 ## 0.2.1
 
 - Added a numeric child ID example and step-by-step instructions for copying the Kidsnote session cookie.
