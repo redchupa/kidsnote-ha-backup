@@ -1,0 +1,202 @@
+import json
+import logging
+import tempfile
+import unittest
+from io import BytesIO
+from pathlib import Path
+from threading import Event
+from unittest.mock import patch
+from urllib.parse import parse_qs, urlsplit
+
+import requests
+
+from app import list_children, read_options, run_once
+from client import BackupError, KidsnoteClient
+from kidsnote_auth import KIDSNOTE_BASE
+
+
+def response(body=None, status=200, **headers):
+    result = requests.Response()
+    result.status_code = status
+    result.headers.update(headers)
+    if isinstance(body, bytes):
+        result.raw = BytesIO(body)
+    else:
+        result._content = json.dumps(body).encode()
+        result._content_consumed = True
+    return result
+
+
+class KidsnoteStub:
+    def __init__(self):
+        self.api_calls = []
+        self.media_calls = []
+        self.signature = "initial"
+        self.video_ok = False
+        self.comment = "First comment"
+
+    def __call__(self, url, *, headers, **kwargs):
+        parsed = urlsplit(url)
+        query = parse_qs(parsed.query)
+        path = parsed.path
+        if parsed.hostname == "cdn.example.test":
+            self.media_calls.append((path, headers.get("Cookie")))
+            if path == "/clip.mp4" and not self.video_ok:
+                return response(b"incomplete", **{"Content-Length": "99"})
+            return response(b"test media")
+        self.api_calls.append(path)
+        if path == "/api/v1/me/children/":
+            return response({"children": [
+                {"id": 1, "enrollment": [{"center": {"id": 12}}]},
+                {"id": 2, "enrollment": [{"center_id": 12}]},
+            ]})
+        if path == "/api/v1_2/children/1/reports/":
+            if "cursor" in query:
+                return response({"results": [{"id": 31}, {"id": 32}]})
+            return response({"results": [{"id": 31}], "next": "opaque+token="})
+        if path in ("/api/v1_2/children/2/reports/", "/api/v1/children/2/albums/"):
+            return response({"results": []})
+        if path == "/api/v1_2/reports/31/":
+            return response({
+                "id": 31, "content": "Synthetic report", "sleep": "example",
+                "attached_images": [{"id": 100, "original": None,
+                                     "url": f"https://cdn.example.test/photo.jpg?s={self.signature}"}],
+                "attached_video": {"original": "https://cdn.example.test/clip.mp4"},
+                "attached_files": [{"original": "https://cdn.example.test/file",
+                                    "original_file_name": "sample.pdf"}],
+            })
+        if path == "/api/v1_2/reports/32/":
+            return response({"id": 32, "body": "Another record"})
+        if path == "/api/v1/reports/31/comments/":
+            if "page" in query:
+                return response({"results": [{"id": 102, "content": "Second comment"}]})
+            return response({"results": [{"id": 101, "content": self.comment}], "next": "?page=2"})
+        if path == "/api/v1/reports/32/comments/":
+            return response({"results": []})
+        if path == "/api/v1/children/1/albums/":
+            return response({"results": [{"id": 41, "title": "Synthetic album"}]})
+        if path == "/api/v1/albums/41/comments/":
+            return response(status=404)
+        if path == "/api/v1/centers/12/notices/":
+            return response({"results": [{"id": 51, "content": "Synthetic notice"}]})
+        if path == "/api/v1/notices/51/comments/":
+            return response({"results": []})
+        if path == "/api/v1/centers/12/menu/":
+            return response({"results": [{
+                "id": 61, "date_menu": "2026-02-03", "lunch": "Example",
+                "lunch_img": {"original": "https://cdn.example.test/lunch.jpg"},
+            }]})
+        raise AssertionError(f"Unexpected route: {path}")
+
+
+class BackupTest(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.options_path = self.root / "fake-options.json"
+        self.options_path.write_text("{}", encoding="utf-8")
+        self.options = read_options(self.options_path)
+        self.client = KidsnoteClient()
+        self.addCleanup(self.client.session.close)
+        self.client.token = "SyntheticCookie"
+        self.stop = Event()
+
+    def run_backup(self):
+        with self.assertLogs(level=logging.INFO) as logs:
+            state = run_once(self.client, self.root, self.options, self.stop)
+        self.assertNotIn(self.client.token or "SyntheticCookie", "\n".join(logs.output))
+        return state
+
+    def load(self, path):
+        return json.loads((self.root / path).read_text(encoding="utf-8"))
+
+    def test_partial_then_resume_with_fresh_signature_and_comments(self):
+        server = KidsnoteStub()
+        with patch.object(self.client.session, "get", side_effect=server):
+            self.assertEqual(self.run_backup(), "partial")
+            self.assertFalse((self.root / "children/1/reports/31/meta.json").exists())
+            self.assertFalse(list(self.root.rglob("*.part")))
+            self.assertFalse(list(self.root.rglob("video_*.mp4")))
+            self.assertEqual(self.load("status.json")["errors"], 1)
+            self.assertEqual(self.load("children/1/reports/32/meta.json")["body"], "Another record")
+            self.assertIsNone(self.load("children/1/albums/41/meta.json")["_comments"])
+            self.assertEqual(self.load("centers/12/notices/51/meta.json")["_comments"], [])
+            self.assertEqual(self.load("centers/12/menus/2026-02-03_61/meta.json")["lunch"], "Example")
+            self.assertEqual(server.api_calls.count("/api/v1/centers/12/menu/"), 1)
+
+            server.video_ok = True
+            server.signature = "renewed"
+            server.comment = "Edited comment"
+            server.media_calls.clear()
+            self.assertEqual(self.run_backup(), "success")
+            self.assertEqual(server.media_calls, [("/clip.mp4", None), ("/file", None)])
+            record = self.load("children/1/reports/31/meta.json")
+            self.assertEqual(record["sleep"], "example")
+            self.assertEqual([c["content"] for c in record["_comments"]], ["Edited comment", "Second comment"])
+            self.assertEqual(record["_local_attachments"][2]["original_name"], "sample.pdf")
+            status = self.load("status.json")
+            self.assertEqual(status["new_attachments"], 2)
+            self.assertEqual(status["last_success_at"], status["finished_at"])
+            report = self.root / "children/1/reports/31"
+            self.assertEqual((report / "note.txt").read_text(), "Synthetic report")
+            self.assertTrue(all((report / media["file"]).is_file() for media in record["_local_attachments"]))
+
+            self.stop.set()
+            self.assertEqual(self.run_backup(), "stopped")
+            self.assertEqual(self.load("status.json")["last_success_at"], status["last_success_at"])
+
+    def test_report_only_with_one_child_selected(self):
+        self.options.update({
+            "child_ids": {"2"}, "include_albums": False,
+            "include_notices": False, "include_menus": False,
+        })
+        server = KidsnoteStub()
+        with patch.object(self.client.session, "get", side_effect=server):
+            self.assertEqual(self.run_backup(), "success")
+        self.assertEqual(server.api_calls, ["/api/v1/me/children/", "/api/v1_2/children/2/reports/"])
+
+    def test_expired_cookie_logs_in_and_reuses_session(self):
+        self.options.update({"username": "synthetic", "password": "example"})
+        children = {"results": [{"id": 1}]}
+        replies = [response(status=401), response(children), response(children)]
+        with (patch.object(self.client.session, "get", side_effect=replies) as get,
+              patch("app.login", return_value="NewCookie") as login):
+            self.assertEqual(list_children(self.client, self.options), children["results"])
+            self.assertEqual(list_children(self.client, self.options), children["results"])
+        login.assert_called_once_with("synthetic", "example")
+        self.assertEqual(get.call_args_list[1].kwargs["headers"]["Cookie"], "sessionid=NewCookie")
+
+    def test_token_does_not_follow_cdn_redirect(self):
+        redirected = response(status=302, Location="https://cdn.example.test/final.jpg")
+        with patch.object(self.client.session, "get", side_effect=[redirected, response(b"media")]) as get:
+            with self.client.get(f"{KIDSNOTE_BASE}/media/photo.jpg", media=True):
+                pass
+        self.assertEqual(get.call_args_list[0].kwargs["headers"]["Cookie"], "sessionid=SyntheticCookie")
+        self.assertNotIn("Cookie", get.call_args_list[1].kwargs["headers"])
+
+    def test_external_api_pagination_is_rejected_before_request(self):
+        external = response({"results": [], "next": "https://other.example.test/records"})
+        with patch.object(self.client.session, "get", return_value=external) as get:
+            with self.assertRaisesRegex(BackupError, "outside its own origin"):
+                list(self.client.items("/api/v1/me/children/"))
+        self.assertEqual(get.call_count, 1)
+
+    def test_pagination_cycle_is_reported_instead_of_succeeding(self):
+        repeated = response({"results": [], "next": "loop"})
+        with patch.object(self.client.session, "get", return_value=repeated) as get:
+            with self.assertRaisesRegex(BackupError, "did not terminate"):
+                list(self.client.items("/api/v1/me/children/"))
+        self.assertEqual(get.call_count, 2)
+
+    def test_configuration_validation(self):
+        self.options_path.write_text('{"interval_hours": 0}', encoding="utf-8")
+        with self.assertRaisesRegex(BackupError, "interval_hours"):
+            read_options(self.options_path)
+        self.options_path.write_text('{"child_ids": [true]}', encoding="utf-8")
+        with self.assertRaisesRegex(BackupError, "child_ids"):
+            read_options(self.options_path)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -1,0 +1,33 @@
+name: Kidsnote Local Backup
+description: Back up Kidsnote reports, comments and media to local storage.
+version: "0.1.0"
+slug: kidsnote_backup
+url: https://github.com/redchupa/home-assistant-kidsnote-backup
+arch:
+  - amd64
+  - aarch64
+startup: application
+boot: auto
+stage: experimental
+map:
+  - type: addon_config
+    read_only: false
+options:
+  username: ""
+  password: ""
+  session_cookie: ""
+  child_ids: []
+  interval_hours: 24
+  include_albums: true
+  include_notices: true
+  include_menus: true
+schema:
+  username: str?
+  password: password?
+  session_cookie: password?
+  child_ids:
+    - int(1,)
+  interval_hours: int(1,168)
+  include_albums: bool
+  include_notices: bool
+  include_menus: bool

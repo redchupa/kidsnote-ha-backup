@@ -1,0 +1,20 @@
+configuration:
+  username:
+    name: 키즈노트 아이디
+  password:
+    name: 키즈노트 비밀번호
+  session_cookie:
+    name: 키즈노트 세션 쿠키
+    description: 2단계 인증 계정은 로그인한 브라우저의 sessionid 값을 입력하세요.
+  child_ids:
+    name: 백업할 자녀 ID
+    description: 비워두면 계정에 연결된 모든 자녀를 백업합니다.
+  interval_hours:
+    name: 백업 간격 (시간)
+    description: 앱이 시작되면 한 번 실행하고 이전 백업이 끝난 뒤 이 시간만큼 기다립니다.
+  include_albums:
+    name: 앨범 백업
+  include_notices:
+    name: 공지사항 백업
+  include_menus:
+    name: 식단 백업

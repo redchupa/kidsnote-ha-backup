@@ -1,0 +1,7 @@
+**
+!Dockerfile
+!requirements.txt
+!app.py
+!archive.py
+!client.py
+!kidsnote_auth.py
