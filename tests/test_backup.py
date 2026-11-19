@@ -238,6 +238,69 @@ class BackupTest(unittest.TestCase):
         with self.assertRaisesRegex(BackupError, r"child_ids: \[1234567\]"):
             read_options(self.options_path)
 
+    def test_notices_and_menus_limited_to_earliest_report_date(self):
+        self.options.update({"include_albums": False})
+        fetched_pages = []
+
+        def fake_get(url, *, headers, **kwargs):
+            parsed = urlsplit(url)
+            query = parse_qs(parsed.query)
+            path = parsed.path
+            fetched_pages.append((path, query.get("page")))
+            if path == "/api/v1/me/children/":
+                return response({"children": [
+                    {"id": 1, "enrollment": [{"center_id": 12}]},
+                    {"id": 2, "enrollment": [{"center_id": 12}]},
+                ]})
+            if path == "/api/v1_2/children/1/reports/":
+                return response({"results": [
+                    {"id": 10, "date_written": "2026-05-10"},
+                    {"id": 11, "date_written": "2026-03-02"},
+                ]})
+            if path == "/api/v1_2/children/2/reports/":
+                return response({"results": [
+                    {"id": 12, "date_written": "2026-04-01"},
+                ]})
+            if path.startswith("/api/v1_2/reports/"):
+                return response({"content": "report"})
+            if path.endswith("/comments/"):
+                return response({"results": []})
+            if path == "/api/v1/centers/12/notices/":
+                if query.get("page") == ["2"]:
+                    raise AssertionError("Should have stopped pagination after consecutive old notices")
+                old_notices = [
+                    {"id": 200 + i, "created": "2026-02-01T09:00:00+09:00", "content": "old"}
+                    for i in range(10)
+                ]
+                return response({
+                    "results": [
+                        # Pinned old notice at top of page 1 must not abort newer notices below it
+                        {"id": 99, "created": "2025-12-01T09:00:00+09:00", "content": "pinned old"},
+                        {"id": 100, "created": "2026-03-02T09:00:00+09:00", "content": "on boundary"},
+                        {"id": 101, "created": "2026-03-15T09:00:00+09:00", "content": "after boundary"},
+                        *old_notices,
+                    ],
+                    "next": 2,
+                })
+            if path == "/api/v1/centers/12/menu/":
+                return response({"results": [
+                    {"id": 301, "date_menu": "2026-03-02", "lunch": "Boundary lunch"},
+                    {"id": 302, "date_menu": "2026-03-01", "lunch": "Too old lunch"},
+                ]})
+            raise AssertionError(f"Unexpected route: {path}")
+
+        with patch.object(self.client.session, "get", side_effect=fake_get):
+            self.assertEqual(self.run_backup(), "success")
+
+        # Notices: 100 and 101 saved; pinned 99 and 200..209 skipped; page 2 never fetched
+        self.assertTrue((self.root / "centers/12/notices/100/meta.json").is_file())
+        self.assertTrue((self.root / "centers/12/notices/101/meta.json").is_file())
+        self.assertFalse((self.root / "centers/12/notices/99/meta.json").exists())
+        self.assertFalse((self.root / "centers/12/notices/200/meta.json").exists())
+        # Menus: 2026-03-02 saved; 2026-03-01 skipped
+        self.assertTrue((self.root / "centers/12/menus/2026-03-02_301/meta.json").is_file())
+        self.assertFalse((self.root / "centers/12/menus/2026-03-01_302/meta.json").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -29,6 +29,7 @@ URL_KEYS = ("original", "url", "src", "high", "high_resize", "large_resize")
 MENU_PHOTOS = ("morning_img", "morning_snack_img", "lunch_img", "afternoon_snack_img", "dinner_img")
 EXTENSION = re.compile(r"\.[a-z0-9]{1,10}", re.ASCII)
 REFRESH_SECONDS = 7 * 24 * 60 * 60
+OLDER_STOP_STREAK = 10
 
 
 @contextmanager
@@ -77,6 +78,17 @@ def menu_key(item):
     except ValueError as exc:
         raise BackupError("Kidsnote returned an invalid menu date.") from exc
     return f"{day}_{identifier(item['id'])}" if item.get("id") is not None else day
+
+
+def record_date(item) -> date | None:
+    for key in ("date_written", "date_menu", "created"):
+        value = item.get(key)
+        if value:
+            try:
+                return date.fromisoformat(str(value)[:10])
+            except ValueError:
+                continue
+    return None
 
 
 def already_backed_up(folder, item):
@@ -209,6 +221,7 @@ class Archive:
         self.records += 1
         if self.records % 100 == 0:
             LOG.info("Progress: %d records saved, %d new attachments.", self.records, self.downloaded)
+        return item
 
     def post_media(self, folder, item, prefix=""):
         return [
@@ -227,32 +240,48 @@ class Archive:
         message = str(exc) if isinstance(exc, BackupError) else type(exc).__name__
         LOG.warning("%s backup failed: %s", kind, message)
 
-    def collection(self, path, folder, kind, **params):
+    def collection(self, path, folder, kind, *, since: date | None = None, **params):
         self.check_stop()
+        earliest: date | None = None
+        older_streak = 0
         try:
             for item in self.client.items(path, **params):
                 self.check_stop()
+                item_date = record_date(item)
+                if since is not None and item_date is not None:
+                    if item_date < since:
+                        older_streak += 1
+                        if older_streak >= OLDER_STOP_STREAK:
+                            break
+                        continue
+                    older_streak = 0
+                if item_date is not None:
+                    earliest = item_date if earliest is None else min(earliest, item_date)
                 try:
                     key = menu_key(item) if kind == "menus" else identifier(item.get("id"))
                     target = folder / key
                     if kind != "menus" and already_backed_up(target, item):
                         self.unchanged += 1
                         continue
-                    self.save(target, kind, item)
+                    saved = self.save(target, kind, item)
+                    saved_date = record_date(saved)
+                    if saved_date is not None:
+                        earliest = saved_date if earliest is None else min(earliest, saved_date)
                 except (BackupError, OSError) as exc:
                     self.failed(kind, exc)
         except (BackupError, OSError) as exc:
             self.failed(kind, exc)
+        return earliest
 
     def run(self, children, options):
-        centers = set()
+        center_since: dict[str, date | None] = {}
         for child in children:
             self.check_stop()
             child_id = identifier(child.get("id"))
             root = self.root / "children" / child_id
             if isinstance(child.get("name"), str):
                 write_json(root / "profile.json", {"name": child["name"]})
-            self.collection(
+            earliest_report = self.collection(
                 f"{V12}/children/{child_id}/reports/", root / "reports", "reports",
                 alternate="reports", tz="Asia/Seoul", child=child_id,
             )
@@ -260,12 +289,22 @@ class Archive:
                 self.collection(f"{V1}/children/{child_id}/albums/", root / "albums", "albums")
             if options["include_notices"] or options["include_menus"]:
                 try:
-                    centers.update(center_ids(child))
+                    for center_id in center_ids(child):
+                        previous = center_since.get(center_id)
+                        if earliest_report is not None:
+                            center_since[center_id] = (
+                                earliest_report if previous is None else min(previous, earliest_report)
+                            )
+                        else:
+                            center_since.setdefault(center_id, None)
                 except (AttributeError, BackupError, TypeError):
                     self.failed("centers", BackupError("Kidsnote returned invalid enrollment data."))
-        for center_id in sorted(centers):
+        for center_id in sorted(center_since):
             root = self.root / "centers" / center_id
+            since = center_since[center_id]
+            if since is not None:
+                LOG.info("Center %s: backing up notices and menus from %s onward.", center_id, since.isoformat())
             if options["include_notices"]:
-                self.collection(f"{V1}/centers/{center_id}/notices/", root / "notices", "notices")
+                self.collection(f"{V1}/centers/{center_id}/notices/", root / "notices", "notices", since=since)
             if options["include_menus"]:
-                self.collection(f"{V1}/centers/{center_id}/menu/", root / "menus", "menus")
+                self.collection(f"{V1}/centers/{center_id}/menu/", root / "menus", "menus", since=since)

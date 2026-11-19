@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.4
+
+- Limited center notice and menu backups to dates on or after the earliest report date of the enrolled children, skipping pre-enrollment records and stopping pagination early.
+
 ## 0.3.3
 
 - Hardened viewer and scheduler concurrency, security, and edge cases:
