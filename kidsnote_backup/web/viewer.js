@@ -96,12 +96,14 @@ async function post(endpoint, payload) {
   return { ok: response.ok, status: response.status, data };
 }
 
+const VALID_THEMES = new Set(THEME_LIST.map(t => t.id));
+
 function applySettings(settings) {
-  currentSettings = {
-    title: settings.title || DEFAULT_TITLE,
-    theme: settings.theme || "auto",
-    default_tab: settings.default_tab || "reports",
-  };
+  const safeTitle = typeof settings?.title === "string" && settings.title.trim()
+    ? settings.title.trim().slice(0, 40) : DEFAULT_TITLE;
+  const safeTheme = VALID_THEMES.has(settings?.theme) ? settings.theme : "auto";
+  const safeTab = Object.hasOwn(labels, settings?.default_tab) ? settings.default_tab : "reports";
+  currentSettings = { title: safeTitle, theme: safeTheme, default_tab: safeTab };
   document.documentElement.setAttribute("data-theme", currentSettings.theme);
   document.title = currentSettings.title;
   const heading = document.querySelector("#archive-title");

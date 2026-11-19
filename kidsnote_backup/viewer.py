@@ -281,22 +281,22 @@ def read_settings(root):
 def save_settings(root, payload):
     if not isinstance(payload, dict):
         abort(400)
-    current = read_settings(root)
-    if "title" in payload:
-        title = payload["title"]
-        if not isinstance(title, str):
-            abort(400)
-        cleaned = " ".join(title.split())[:40]
-        current["title"] = cleaned or DEFAULT_TITLE
-    if "theme" in payload:
-        if payload["theme"] not in THEMES:
-            abort(400)
-        current["theme"] = payload["theme"]
-    if "default_tab" in payload:
-        if payload["default_tab"] not in TABS:
-            abort(400)
-        current["default_tab"] = payload["default_tab"]
     with STATE_LOCK:
+        current = read_settings(root)
+        if "title" in payload:
+            title = payload["title"]
+            if not isinstance(title, str):
+                abort(400)
+            cleaned = " ".join(title.split())[:40]
+            current["title"] = cleaned or DEFAULT_TITLE
+        if "theme" in payload:
+            if payload["theme"] not in THEMES:
+                abort(400)
+            current["theme"] = payload["theme"]
+        if "default_tab" in payload:
+            if payload["default_tab"] not in TABS:
+                abort(400)
+            current["default_tab"] = payload["default_tab"]
         write_json(root / "ui_settings.json", current)
     return current
 
@@ -339,6 +339,7 @@ def create_app(root, proxy="172.30.32.2", backup_controller=None):
     root = Path(root).resolve()
     app = Flask(__name__, static_folder=None)
     app.json.ensure_ascii = False
+    app.config["MAX_CONTENT_LENGTH"] = 16 * 1024
 
     @app.before_request
     def ingress_only():
@@ -472,6 +473,11 @@ def create_app(root, proxy="172.30.32.2", backup_controller=None):
         events = [
             entry for entry in board_data["events"]
             if entry["start"] <= month_end and entry["end"] >= month_start
+            and (
+                not owner
+                or not entry.get("page_id", "").startswith("reports/")
+                or entry.get("page_id", "").split("/")[1:2] == [owner]
+            )
         ]
         child_names = {}
         child_ids = set()
@@ -521,6 +527,8 @@ def create_app(root, proxy="172.30.32.2", backup_controller=None):
 
     @app.post("/api/backup/trigger")
     def backup_trigger():
+        if not request.is_json:
+            abort(400)
         if backup_controller is None:
             return {"accepted": False, "message": "수동 백업이 비활성화되어 있습니다."}, 503
         code, payload = backup_controller.trigger()
@@ -535,7 +543,8 @@ def create_app(root, proxy="172.30.32.2", backup_controller=None):
         for item in (data, *comments(data)):
             for attachment, label in attachments(item, path.parent):
                 if attachment.name == name:
-                    mime = IMAGE.get(attachment.suffix) or VIDEO.get(attachment.suffix)
+                    suffix = attachment.suffix.lower()
+                    mime = IMAGE.get(suffix) or VIDEO.get(suffix)
                     return send_file(attachment, mimetype=mime or "application/octet-stream",
                                      as_attachment="download" in request.args or not mime,
                                      download_name=label, conditional=True)
@@ -555,12 +564,16 @@ def create_app(root, proxy="172.30.32.2", backup_controller=None):
         if not files:
             abort(404)
         spool = tempfile.SpooledTemporaryFile(max_size=16 * 1024 * 1024)
-        used = set()
-        with zipfile.ZipFile(spool, "w", compression=zipfile.ZIP_STORED) as bundle:
-            for attachment, label in files:
-                arcname = safe_zip_name(label, attachment.name, used)
-                bundle.write(attachment, arcname=arcname)
-        spool.seek(0)
+        try:
+            used = set()
+            with zipfile.ZipFile(spool, "w", compression=zipfile.ZIP_STORED) as bundle:
+                for attachment, label in files:
+                    arcname = safe_zip_name(label, attachment.name, used)
+                    bundle.write(attachment, arcname=arcname)
+            spool.seek(0)
+        except Exception:
+            spool.close()
+            raise
         day = date_of(data)
         prefix = day.isoformat() if day else entry
         title = re.sub(r'[<>:"/\\|?*\x00-\x1f\s]+', "_", plain(data.get("title"))).strip("_")[:30]

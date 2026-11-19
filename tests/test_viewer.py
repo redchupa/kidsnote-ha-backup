@@ -145,10 +145,11 @@ class ViewerTest(unittest.TestCase):
         report_rec = next(r for r in cal["records"] if r["kind"] == "reports")
         self.assertEqual(report_rec["date"], "2026-11-18")
         self.assertEqual(report_rec["owner_name"], "테스트 자녀")
-        # Child filter excludes other children's reports but keeps center menus
+        # Child filter excludes other children's reports and their report-sourced events, but keeps center menus
         with patch("viewer.supplies.today_kst", return_value=date(2026, 11, 19)):
             filtered = self.get("/api/calendar?month=2026-11&owner=999").json
         self.assertEqual([r["kind"] for r in filtered["records"]], ["menus"])
+        self.assertEqual(filtered["events"], [])
         self.assertEqual(self.get("/api/calendar?month=2026-99").status_code, 400)
 
     def test_supplies_checklist_persistence(self):
@@ -188,9 +189,18 @@ class ViewerTest(unittest.TestCase):
         env = {"REMOTE_ADDR": "172.30.32.2"}
 
         self.assertTrue(client.get("/api/backup/status", headers=hdrs, environ_overrides=env).json["can_trigger"])
+        # Non-JSON POST rejected for CSRF defense
+        r_bad = client.post("/api/backup/trigger", data="x=1", headers=hdrs, environ_overrides=env)
+        self.assertEqual(r_bad.status_code, 400)
+
         r1 = client.post("/api/backup/trigger", json={}, headers=hdrs, environ_overrides=env)
         self.assertEqual(r1.status_code, 202)
         self.assertTrue(controller.wake.is_set())
+
+        # Duplicate click before wake is consumed -> 409
+        r_dup = client.post("/api/backup/trigger", json={}, headers=hdrs, environ_overrides=env)
+        self.assertEqual(r_dup.status_code, 409)
+        controller.wake.clear()
 
         # While running -> 409
         controller.set_running(True)

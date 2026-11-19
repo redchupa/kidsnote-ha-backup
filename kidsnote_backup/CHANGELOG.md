@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.3
+
+- Hardened viewer and scheduler concurrency, security, and edge cases:
+  - Restored saved server cooldown before starting the viewer server and blocked duplicate manual backup triggers while a wake request is pending.
+  - Made UI settings updates atomic under the state lock, enforced JSON content type on all POST endpoints, and capped POST body size to 16 KB.
+  - Filtered report-sourced calendar events by selected child owner and normalized uppercase media extensions during delivery.
+  - Ensured temporary ZIP buffers are always closed on error and validated cached client settings against allowlists.
+
 ## 0.3.2
 
 - Fixed overly rounded corners (`999px`) in the Cute theme clipping video player controls, gallery photos, document previews, calendar day cards, and theme cards by introducing a dedicated `--radius-media` token (`1rem`).

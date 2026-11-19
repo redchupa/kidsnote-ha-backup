@@ -159,7 +159,7 @@ class BackupController:
     def trigger(self):
         now = time.time()
         with self._lock:
-            if self.running:
+            if self.running or self.wake.is_set():
                 return 409, {"accepted": False, "reason": "already_running", "message": "이미 백업이 진행 중입니다."}
             if self.pacer.cooldown_until > now:
                 remaining = max(1, int(math.ceil((self.pacer.cooldown_until - now) / 60)))
@@ -256,6 +256,12 @@ def main(argv=None):
     for sig in (signal.SIGINT, signal.SIGTERM):
         signal.signal(sig, lambda *_: stop.set())
     pacer = RequestPacer(stop)
+    previous = read_status(args.archive / "status.json").get("retry_not_before")
+    if type(previous) in (float, int) and math.isfinite(previous):
+        pacer.cooldown_until = previous
+    if args.once and pacer.cooldown_until > time.time():
+        LOG.warning("Backup is still waiting for the previous server cooldown.")
+        return 1
     controller = BackupController(pacer)
     server = None
     if not args.once:
@@ -266,12 +272,6 @@ def main(argv=None):
             return 1
         Thread(target=server.run, name="archive-viewer", daemon=True).start()
     try:
-        previous = read_status(args.archive / "status.json").get("retry_not_before")
-        if type(previous) in (float, int) and math.isfinite(previous):
-            pacer.cooldown_until = previous
-        if args.once and pacer.cooldown_until > time.time():
-            LOG.warning("Backup is still waiting for the previous server cooldown.")
-            return 1
         first_delay = 0.0
         if not args.once and (options["username"] or options["session_cookie"]):
             first_delay = random.uniform(0, BACKUP_SPREAD_SECONDS)
