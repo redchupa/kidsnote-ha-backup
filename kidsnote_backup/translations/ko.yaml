@@ -25,3 +25,6 @@ configuration:
     name: 공지사항 백업
   include_menus:
     name: 식단 백업
+  notify_ha:
+    name: Home Assistant 이벤트 알림
+    description: 새 기록이 백업되면 Home Assistant에 kidsnote_backup_completed 이벤트를 전송합니다.

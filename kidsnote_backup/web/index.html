@@ -10,9 +10,18 @@
 <body>
   <a class="skip" href="#main">본문으로 건너뛰기</a>
   <header class="masthead shell">
-    <div>
-      <h1>키즈노트 보관함</h1>
-      <p id="backup-status" aria-live="polite"></p>
+    <div class="masthead-bar">
+      <div class="masthead-brand">
+        <h1 id="archive-title">키즈노트 보관함</h1>
+        <p id="backup-status" aria-live="polite"></p>
+      </div>
+      <div class="masthead-actions">
+        <button type="button" id="backup-now" class="action-btn" hidden>지금 백업</button>
+        <button type="button" id="open-settings" class="action-btn settings-btn" aria-haspopup="dialog" aria-label="보관함 설정">
+          <span class="gear-icon" aria-hidden="true">⚙</span>
+          <span>설정</span>
+        </button>
+      </div>
     </div>
   </header>
   <nav class="tabs shell" aria-label="보관함 메뉴">
@@ -26,5 +35,66 @@
   <main class="shell" id="main" tabindex="-1" aria-busy="true">
     <p class="empty" role="status">보관함을 불러오는 중입니다.</p>
   </main>
+
+  <dialog id="settings-dialog" class="modal" aria-labelledby="settings-heading">
+    <div class="modal-card">
+      <header class="modal-header">
+        <h2 id="settings-heading">보관함 설정</h2>
+        <button type="button" class="close-btn" id="close-settings" aria-label="닫기">✕</button>
+      </header>
+      <div class="modal-body">
+        <div class="setting-group">
+          <label class="setting-label" for="setting-title">보관함 이름</label>
+          <div class="title-input-row">
+            <input type="text" id="setting-title" maxlength="40" placeholder="키즈노트 보관함">
+            <button type="button" id="reset-title" class="secondary-btn">기본값</button>
+          </div>
+          <p class="setting-hint">상단 제목과 브라우저 탭 이름이 변경됩니다. 모든 기기에 자동 동기화됩니다.</p>
+        </div>
+
+        <div class="setting-group">
+          <span class="setting-label">디자인 테마</span>
+          <div class="theme-grid" id="theme-grid" role="radiogroup" aria-label="디자인 테마 선택"></div>
+        </div>
+
+        <div class="setting-group">
+          <label class="setting-label" for="setting-tab">기본 시작 화면</label>
+          <select id="setting-tab">
+            <option value="reports">알림장</option>
+            <option value="calendar">달력</option>
+            <option value="supplies">준비물</option>
+            <option value="albums">앨범</option>
+            <option value="notices">공지</option>
+            <option value="menus">식단</option>
+          </select>
+        </div>
+      </div>
+      <footer class="modal-footer">
+        <button type="button" id="cancel-settings" class="secondary-btn">취소</button>
+        <button type="button" id="save-settings" class="primary-btn">저장</button>
+      </footer>
+    </div>
+  </dialog>
+
+  <dialog id="lightbox-dialog" class="lightbox" aria-label="사진 크게 보기">
+    <div class="lightbox-shell">
+      <header class="lightbox-bar">
+        <span id="lightbox-counter" class="lightbox-meta"></span>
+        <span id="lightbox-name" class="lightbox-title"></span>
+        <div class="lightbox-tools">
+          <a id="lightbox-download" class="lightbox-link" download>다운로드</a>
+          <a id="lightbox-open" class="lightbox-link" target="_blank" rel="noopener">원본</a>
+          <button type="button" id="lightbox-close" class="lightbox-close" aria-label="닫기">✕</button>
+        </div>
+      </header>
+      <div class="lightbox-stage" id="lightbox-stage">
+        <button type="button" id="lightbox-prev" class="lightbox-nav prev" aria-label="이전 사진">‹</button>
+        <img id="lightbox-img" alt="">
+        <button type="button" id="lightbox-next" class="lightbox-nav next" aria-label="다음 사진">›</button>
+      </div>
+    </div>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 </body>
 </html>

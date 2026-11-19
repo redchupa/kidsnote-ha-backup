@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.0
+
+- Added a settings modal (⚙) to customize the archive title, choose from 7 themes (System Auto, White, Black, Blue, Ivory, Cute, Futuristic), and select the default landing tab, synced across devices.
+- Upgraded the calendar tab to show dated events alongside archived reports, albums, menus, and notices per day with category indicators and a child filter.
+- Added a persistent checklist for supply requests with a remaining count and hide-completed toggle.
+- Added an in-app photo lightbox with keyboard and touch-swipe navigation, one-click ZIP download for all post attachments, and print/PDF styling.
+- Indexed attached document text (PDF, HWP, HWPX, PPTX, DOCX) in archive search.
+- Added a manual "Back up now" trigger with live progress status (respecting server cooldowns) and optional Home Assistant `kidsnote_backup_completed` event notifications (`notify_ha`).
+
 ## 0.2.7
 
 - Replaced the logo shown on the Home Assistant app page.

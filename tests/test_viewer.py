@@ -1,11 +1,17 @@
+import io
 import json
+import os
 import tempfile
+import time
 import unittest
 from datetime import date
 from pathlib import Path
-from unittest.mock import patch
+from threading import Event
+from unittest.mock import MagicMock, patch
 from zipfile import ZipFile
 
+from app import BackupController, notify_home_assistant, read_options
+from pacing import RequestPacer
 from viewer import create_app
 
 
@@ -48,6 +54,10 @@ class ViewerTest(unittest.TestCase):
     def get(self, path, extra_headers=None):
         return self.viewer.get(path, headers={**self.admin, **(extra_headers or {})},
                                environ_overrides={"REMOTE_ADDR": "172.30.32.2"})
+
+    def post(self, path, payload, extra_headers=None):
+        return self.viewer.post(path, json=payload, headers={**self.admin, **(extra_headers or {})},
+                                environ_overrides={"REMOTE_ADDR": "172.30.32.2"})
 
     def test_ingress_requires_proxy_and_admin(self):
         self.assertEqual(self.viewer.get("/", headers=self.admin).status_code, 403)
@@ -95,3 +105,112 @@ class ViewerTest(unittest.TestCase):
         self.assertEqual(self.get("/media/reports/1/2/note.txt").status_code, 404)
         self.assertEqual(self.get("/api/item?key=../../status.json").status_code, 404)
         self.assertEqual(self.get("/media/reports/1/2/%2e%2e%2foptions.json").status_code, 404)
+
+    def test_document_text_is_searchable_in_catalog(self):
+        # "견학" and "우비" exist only inside attached plan.docx, not in body/title/comments.
+        self.assertEqual(self.get("/api/catalog?q=견학").json["total"], 1)
+        self.assertEqual(self.get("/api/catalog?q=우비").json["total"], 1)
+
+    def test_settings_persistence_and_validation(self):
+        initial = self.get("/api/settings").json
+        self.assertEqual(initial, {"title": "키즈노트 보관함", "theme": "auto", "default_tab": "reports"})
+        updated = self.post("/api/settings", {
+            "title": "  민준이 성장일기  ", "theme": "cute", "default_tab": "calendar",
+        })
+        self.assertEqual(updated.status_code, 200)
+        self.assertEqual(updated.json, {"title": "민준이 성장일기", "theme": "cute", "default_tab": "calendar"})
+        self.assertEqual(self.get("/api/settings").json["theme"], "cute")
+        # Empty title reverts to default
+        reverted = self.post("/api/settings", {"title": "   ", "theme": "futuristic"})
+        self.assertEqual(reverted.status_code, 200)
+        self.assertEqual(reverted.json["title"], "키즈노트 보관함")
+        self.assertEqual(reverted.json["theme"], "futuristic")
+        # Invalid theme / tab rejected
+        self.assertEqual(self.post("/api/settings", {"theme": "invalid"}).status_code, 400)
+        self.assertEqual(self.post("/api/settings", {"default_tab": "unknown"}).status_code, 400)
+
+    def test_integrated_calendar_returns_events_and_records(self):
+        menu = self.root / "centers" / "9" / "menus" / "2026-11-18"
+        menu.mkdir(parents=True)
+        (menu / "meta.json").write_text(json.dumps({
+            "date_menu": "2026-11-18", "lunch": "미역국, 불고기", "_local_attachments": [],
+        }), encoding="utf-8")
+        with patch("viewer.supplies.today_kst", return_value=date(2026, 11, 19)):
+            cal = self.get("/api/calendar?month=2026-11").json
+        self.assertEqual(cal["month"], "2026-11")
+        self.assertEqual(len(cal["events"]), 1)
+        self.assertEqual(cal["events"][0]["start"], "2026-11-25")
+        kinds = {rec["kind"] for rec in cal["records"]}
+        self.assertEqual(kinds, {"reports", "menus"})
+        report_rec = next(r for r in cal["records"] if r["kind"] == "reports")
+        self.assertEqual(report_rec["date"], "2026-11-18")
+        self.assertEqual(report_rec["owner_name"], "테스트 자녀")
+        # Child filter excludes other children's reports but keeps center menus
+        with patch("viewer.supplies.today_kst", return_value=date(2026, 11, 19)):
+            filtered = self.get("/api/calendar?month=2026-11&owner=999").json
+        self.assertEqual([r["kind"] for r in filtered["records"]], ["menus"])
+        self.assertEqual(self.get("/api/calendar?month=2026-99").status_code, 400)
+
+    def test_supplies_checklist_persistence(self):
+        item_id = "reports/1/2|내일 수건 보내주세요~"
+        res = self.post("/api/supplies/check", {"id": item_id, "checked": True})
+        self.assertEqual(res.status_code, 200)
+        self.assertIn(item_id, res.json["checked"])
+        with patch("viewer.supplies.today_kst", return_value=date(2026, 11, 19)):
+            board = self.get("/api/board").json
+        self.assertIn(item_id, board["checked"])
+        res2 = self.post("/api/supplies/check", {"id": item_id, "checked": False})
+        self.assertNotIn(item_id, res2.json["checked"])
+        self.assertEqual(self.post("/api/supplies/check", {"id": "", "checked": True}).status_code, 400)
+
+    def test_bulk_zip_attachment_download(self):
+        with self.get("/media-zip/reports/1/2") as response:
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.mimetype, "application/zip")
+            with ZipFile(io.BytesIO(response.data)) as bundle:
+                names = set(bundle.namelist())
+                self.assertIn("사진.png", names)
+                self.assertIn("일정표.docx", names)
+                self.assertIn("comment_7_image.png", names)
+                self.assertNotIn("note.txt", names)
+        self.assertEqual(self.get("/media-zip/reports/1/999").status_code, 404)
+
+    def test_manual_backup_trigger_and_cooldown(self):
+        # Standalone viewer without controller
+        self.assertFalse(self.get("/api/backup/status").json["can_trigger"])
+        self.assertEqual(self.post("/api/backup/trigger", {}).status_code, 503)
+
+        # Viewer with BackupController
+        pacer = RequestPacer(Event())
+        controller = BackupController(pacer)
+        client = create_app(self.root, backup_controller=controller).test_client()
+        hdrs = self.admin
+        env = {"REMOTE_ADDR": "172.30.32.2"}
+
+        self.assertTrue(client.get("/api/backup/status", headers=hdrs, environ_overrides=env).json["can_trigger"])
+        r1 = client.post("/api/backup/trigger", json={}, headers=hdrs, environ_overrides=env)
+        self.assertEqual(r1.status_code, 202)
+        self.assertTrue(controller.wake.is_set())
+
+        # While running -> 409
+        controller.set_running(True)
+        r2 = client.post("/api/backup/trigger", json={}, headers=hdrs, environ_overrides=env)
+        self.assertEqual(r2.status_code, 409)
+        controller.set_running(False)
+
+        # During cooldown -> 429
+        pacer.cooldown_until = time.time() + 600
+        r3 = client.post("/api/backup/trigger", json={}, headers=hdrs, environ_overrides=env)
+        self.assertEqual(r3.status_code, 429)
+
+    def test_ha_notification_and_option(self):
+        cfg = self.root / "options.json"
+        cfg.write_text('{"notify_ha": true}', encoding="utf-8")
+        self.assertTrue(read_options(cfg)["notify_ha"])
+
+        with patch.dict(os.environ, {"SUPERVISOR_TOKEN": "test-token"}, clear=False):
+            fake_resp = MagicMock(status_code=200)
+            with patch("app.requests.Session.post", return_value=fake_resp) as post_mock:
+                self.assertTrue(notify_home_assistant({"state": "success", "records": 3, "new_attachments": 2, "errors": 0}))
+                post_mock.assert_called_once()
+                self.assertFalse(notify_home_assistant({"state": "success", "records": 0}))

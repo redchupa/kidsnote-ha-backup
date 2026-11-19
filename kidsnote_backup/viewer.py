@@ -3,23 +3,33 @@ from __future__ import annotations
 
 import json
 import re
+import tempfile
+import zipfile
 from dataclasses import asdict
 from datetime import timedelta
 from functools import lru_cache
 from html.parser import HTMLParser
 from pathlib import Path
+from threading import Lock
 
 from flask import Flask, abort, request, send_file
 from waitress import create_server
 
+from archive import write_json
 import doc_text
 import supplies
 
 WEB = Path(__file__).with_name("web")
 GROUPS = {"reports": "children", "albums": "children", "notices": "centers", "menus": "centers"}
 ID = re.compile(r"[0-9]{1,30}")
+MONTH = re.compile(r"[0-9]{4}-(?:0[1-9]|1[0-2])")
 MENU_ID = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}(?:_[0-9]{1,30})?")
 FILENAME = re.compile(r"[a-zA-Z0-9_-]+\.[a-zA-Z0-9]{1,10}")
+DEFAULT_TITLE = "키즈노트 보관함"
+THEMES = ("auto", "white", "black", "blue", "ivory", "cute", "futuristic")
+TABS = ("reports", "albums", "notices", "menus", "supplies", "calendar")
+MAX_CHECKED_SUPPLIES = 500
+STATE_LOCK = Lock()
 IMAGE = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
          ".gif": "image/gif", ".webp": "image/webp", ".avif": "image/avif"}
 VIDEO = {".mp4": "video/mp4", ".mov": "video/quicktime", ".webm": "video/webm", ".m4v": "video/mp4"}
@@ -196,12 +206,18 @@ def summary(path, mtime, size):
     day = date_of(item)
     cover = next((p.name for p, _ in attachments(item, path.parent) if p.suffix in IMAGE), "")
     menu = "\n".join(plain(item.get(key)) for key in MENU)
+    doc_texts = [
+        extracted
+        for entry in (item, *comments(item))
+        for p, _ in attachments(entry, path.parent)
+        if (extracted := document(p))
+    ]
     return {
         "title": title or (text.splitlines() or [""])[0][:66],
         "date": day.isoformat() if day else "",
         "excerpt": " ".join((text or menu).split())[:130],
         "cover": cover,
-        "search": "\n".join([title, text, menu] + [body(comment) for comment in comments(item)]).casefold(),
+        "search": "\n".join([title, text, menu] + [body(comment) for comment in comments(item)] + doc_texts).casefold(),
     }
 
 
@@ -237,7 +253,83 @@ def serialize_asset(path, name):
     return {**asset_summary(path, name), "text": document(path)}
 
 
-def create_app(root, proxy="172.30.32.2"):
+def serialize_board(root):
+    data = make_board(root)
+    data["today"] = data["today"].isoformat()
+    for entry in data["events"] + data["requests"]:
+        for key in ("start", "end", "posted"):
+            if key in entry:
+                entry[key] = entry[key].isoformat()
+    return data
+
+
+def read_settings(root):
+    raw = read_json(root / "ui_settings.json")
+    title = raw.get("title")
+    title = " ".join(title.split())[:40] if isinstance(title, str) and title.strip() else DEFAULT_TITLE
+    theme = raw.get("theme") if raw.get("theme") in THEMES else "auto"
+    default_tab = raw.get("default_tab") if raw.get("default_tab") in TABS else "reports"
+    return {"title": title, "theme": theme, "default_tab": default_tab}
+
+
+def save_settings(root, payload):
+    if not isinstance(payload, dict):
+        abort(400)
+    current = read_settings(root)
+    if "title" in payload:
+        title = payload["title"]
+        if not isinstance(title, str):
+            abort(400)
+        cleaned = " ".join(title.split())[:40]
+        current["title"] = cleaned or DEFAULT_TITLE
+    if "theme" in payload:
+        if payload["theme"] not in THEMES:
+            abort(400)
+        current["theme"] = payload["theme"]
+    if "default_tab" in payload:
+        if payload["default_tab"] not in TABS:
+            abort(400)
+        current["default_tab"] = payload["default_tab"]
+    with STATE_LOCK:
+        write_json(root / "ui_settings.json", current)
+    return current
+
+
+def read_checked_supplies(root):
+    raw = read_json(root / "checked_supplies.json")
+    items = raw.get("checked")
+    if not isinstance(items, list):
+        return []
+    return [entry for entry in items if isinstance(entry, str) and 0 < len(entry) <= 300]
+
+
+def update_checked_supplies(root, item_id, checked):
+    with STATE_LOCK:
+        items = read_checked_supplies(root)
+        if checked:
+            if item_id in items:
+                items.remove(item_id)
+            items.append(item_id)
+            items = items[-MAX_CHECKED_SUPPLIES:]
+        else:
+            items = [entry for entry in items if entry != item_id]
+        write_json(root / "checked_supplies.json", {"checked": items})
+    return items
+
+
+def safe_zip_name(label, fallback, used):
+    cleaned = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", Path(label or fallback).name).strip(" .") or fallback
+    stem, suffix = Path(cleaned).stem or "file", Path(cleaned).suffix
+    candidate = cleaned
+    index = 2
+    while candidate.casefold() in used:
+        candidate = f"{stem}_{index}{suffix}"
+        index += 1
+    used.add(candidate.casefold())
+    return candidate
+
+
+def create_app(root, proxy="172.30.32.2", backup_controller=None):
     root = Path(root).resolve()
     app = Flask(__name__, static_folder=None)
     app.json.ensure_ascii = False
@@ -268,6 +360,15 @@ def create_app(root, proxy="172.30.32.2"):
         if name not in {"viewer.css", "viewer.js"}:
             abort(404)
         return send_file(WEB / name)
+
+    @app.get("/api/settings")
+    def get_settings():
+        return read_settings(root)
+
+    @app.post("/api/settings")
+    def post_settings():
+        payload = request.get_json(silent=True)
+        return save_settings(root, payload)
 
     @app.get("/api/catalog")
     def catalog():
@@ -334,13 +435,87 @@ def create_app(root, proxy="172.30.32.2"):
 
     @app.get("/api/board")
     def board():
-        data = make_board(root)
-        data["today"] = data["today"].isoformat()
-        for entry in data["events"] + data["requests"]:
-            for key in ("start", "end", "posted"):
-                if key in entry:
-                    entry[key] = entry[key].isoformat()
+        data = serialize_board(root)
+        data["checked"] = read_checked_supplies(root)
         return data
+
+    @app.post("/api/supplies/check")
+    def check_supply():
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict):
+            abort(400)
+        item_id = payload.get("id")
+        checked = payload.get("checked")
+        if not isinstance(item_id, str) or not (0 < len(item_id) <= 300) or type(checked) is not bool:
+            abort(400)
+        return {"checked": update_checked_supplies(root, item_id, checked)}
+
+    @app.get("/api/calendar")
+    def calendar_month():
+        today = supplies.today_kst()
+        month = request.args.get("month") or today.strftime("%Y-%m")
+        owner = request.args.get("owner", "")
+        if not MONTH.fullmatch(month) or (owner and not ID.fullmatch(owner)):
+            abort(400)
+        board_data = serialize_board(root)
+        month_start = f"{month}-01"
+        month_end = f"{month}-31"
+        events = [
+            entry for entry in board_data["events"]
+            if entry["start"] <= month_end and entry["end"] >= month_start
+        ]
+        child_names = {}
+        child_ids = set()
+        for kind in ("reports", "albums"):
+            for key, _ in records(root, kind):
+                child_ids.add(key.split("/")[1])
+        for child_id in sorted(child_ids):
+            child_names[child_id] = plain(read_json(root / "children" / child_id / "profile.json").get("name"))
+        items = []
+        for kind in ("reports", "albums", "notices", "menus"):
+            for key, path in records(root, kind):
+                group_id = key.split("/")[1]
+                if owner and kind in ("reports", "albums") and group_id != owner:
+                    continue
+                try:
+                    stat = path.stat()
+                except OSError:
+                    continue
+                record = summary(path, stat.st_mtime_ns, stat.st_size)
+                if not record or not record["date"].startswith(month):
+                    continue
+                items.append({
+                    "key": key,
+                    "kind": kind,
+                    "date": record["date"],
+                    "title": record["title"],
+                    "excerpt": record["excerpt"],
+                    "cover": record["cover"],
+                    "owner": group_id,
+                    "owner_name": child_names.get(group_id, "") if kind in ("reports", "albums") else "",
+                })
+        items.sort(key=lambda entry: (entry["date"], entry["kind"], entry["key"]), reverse=True)
+        return {
+            "today": board_data["today"],
+            "month": month,
+            "owners": [{"id": cid, "name": child_names[cid]} for cid in sorted(child_ids)],
+            "events": events,
+            "records": items,
+        }
+
+    @app.get("/api/backup/status")
+    def backup_status():
+        status = read_json(root / "status.json")
+        if backup_controller is None:
+            return {"status": status, "running": False, "cooldown_until": 0.0, "next_run": 0.0, "can_trigger": False}
+        return {"status": status, **backup_controller.snapshot(), "can_trigger": True}
+
+    @app.post("/api/backup/trigger")
+    def backup_trigger():
+        if backup_controller is None:
+            return {"accepted": False, "message": "수동 백업이 비활성화되어 있습니다."}, 503
+        code, payload = backup_controller.trigger()
+        return payload, code
 
     @app.get("/media/<kind>/<owner>/<entry>/<name>")
     def media(kind, owner, entry, name):
@@ -357,8 +532,34 @@ def create_app(root, proxy="172.30.32.2"):
                                      download_name=label, conditional=True)
         abort(404)
 
+    @app.get("/media-zip/<kind>/<owner>/<entry>")
+    def media_zip(kind, owner, entry):
+        path = meta_path(root, f"{kind}/{owner}/{entry}")
+        data = read_json(path) if path else {}
+        if not data:
+            abort(404)
+        files = [
+            (attachment, label)
+            for record in (data, *comments(data))
+            for attachment, label in attachments(record, path.parent)
+        ]
+        if not files:
+            abort(404)
+        spool = tempfile.SpooledTemporaryFile(max_size=16 * 1024 * 1024)
+        used = set()
+        with zipfile.ZipFile(spool, "w", compression=zipfile.ZIP_STORED) as bundle:
+            for attachment, label in files:
+                arcname = safe_zip_name(label, attachment.name, used)
+                bundle.write(attachment, arcname=arcname)
+        spool.seek(0)
+        day = date_of(data)
+        prefix = day.isoformat() if day else entry
+        title = re.sub(r'[<>:"/\\|?*\x00-\x1f\s]+', "_", plain(data.get("title"))).strip("_")[:30]
+        zip_name = f"{prefix}_{title}.zip" if title else f"{prefix}_{kind}.zip"
+        return send_file(spool, mimetype="application/zip", as_attachment=True, download_name=zip_name)
+
     return app
 
 
-def viewer_server(root):
-    return create_server(create_app(root), host="0.0.0.0", port=8099, threads=8)
+def viewer_server(root, backup_controller=None):
+    return create_server(create_app(root, backup_controller=backup_controller), host="0.0.0.0", port=8099, threads=8)

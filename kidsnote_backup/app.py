@@ -11,7 +11,9 @@ import signal
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from threading import Event, Thread
+from threading import Event, Lock, Thread
+
+import requests
 
 from archive import Archive, write_json
 from client import BackupError, HttpError, KidsnoteClient, identifier
@@ -54,6 +56,10 @@ def read_options(path: Path):
         if type(value) is not bool:
             raise BackupError(f"{key} must be true or false.")
         options[key] = value
+    notify_ha = raw.get("notify_ha", False)
+    if type(notify_ha) is not bool:
+        raise BackupError("notify_ha must be true or false.")
+    options["notify_ha"] = notify_ha
     return options
 
 
@@ -93,6 +99,78 @@ def read_status(path):
         return content if isinstance(content, dict) else {}
     except (OSError, ValueError):
         return {}
+
+
+def notify_home_assistant(status):
+    token = os.environ.get("SUPERVISOR_TOKEN", "").strip()
+    if not token or status.get("records", 0) <= 0:
+        return False
+    payload = {
+        "state": status.get("state"),
+        "records": status.get("records", 0),
+        "new_attachments": status.get("new_attachments", 0),
+        "errors": status.get("errors", 0),
+        "finished_at": status.get("finished_at"),
+    }
+    try:
+        with requests.Session() as session:
+            session.trust_env = False
+            resp = session.post(
+                "http://supervisor/core/api/events/kidsnote_backup_completed",
+                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                json=payload,
+                timeout=10,
+            )
+            if resp.status_code >= 400:
+                LOG.warning("Home Assistant event notification returned HTTP %d.", resp.status_code)
+                return False
+            return True
+    except requests.RequestException as exc:
+        LOG.warning("Could not notify Home Assistant: %s", type(exc).__name__)
+        return False
+
+
+class BackupController:
+    """Thread-safe bridge between the viewer UI and the backup scheduler."""
+
+    def __init__(self, pacer: RequestPacer):
+        self.pacer = pacer
+        self.wake = Event()
+        self._lock = Lock()
+        self.running = False
+        self.next_run = 0.0
+
+    def set_running(self, value: bool):
+        with self._lock:
+            self.running = value
+
+    def set_next_run(self, when: float):
+        with self._lock:
+            self.next_run = when
+
+    def snapshot(self):
+        with self._lock:
+            return {
+                "running": self.running,
+                "cooldown_until": self.pacer.cooldown_until,
+                "next_run": self.next_run,
+            }
+
+    def trigger(self):
+        now = time.time()
+        with self._lock:
+            if self.running:
+                return 409, {"accepted": False, "reason": "already_running", "message": "이미 백업이 진행 중입니다."}
+            if self.pacer.cooldown_until > now:
+                remaining = max(1, int(math.ceil((self.pacer.cooldown_until - now) / 60)))
+                return 429, {
+                    "accepted": False,
+                    "reason": "cooldown",
+                    "cooldown_until": self.pacer.cooldown_until,
+                    "message": f"키즈노트 서버 보호 대기 중입니다. 약 {remaining}분 후에 다시 시도할 수 있습니다.",
+                }
+            self.wake.set()
+            return 202, {"accepted": True, "message": "수동 백업을 시작합니다."}
 
 
 def write_status(path, status):
@@ -146,6 +224,8 @@ def run_once(client, root, options, stop):
         if state == "deferred":
             status["retry_not_before"] = client.pacer.cooldown_until
         write_status(root / "status.json", status)
+        if options.get("notify_ha") and state in ("success", "partial"):
+            notify_home_assistant(status)
     except OSError as exc:
         LOG.error("Could not write backup status: %s", type(exc).__name__)
         state = "failed"
@@ -175,16 +255,17 @@ def main(argv=None):
     stop = Event()
     for sig in (signal.SIGINT, signal.SIGTERM):
         signal.signal(sig, lambda *_: stop.set())
+    pacer = RequestPacer(stop)
+    controller = BackupController(pacer)
     server = None
     if not args.once:
         try:
-            server = viewer_server(args.archive)
+            server = viewer_server(args.archive, backup_controller=controller)
         except OSError:
             LOG.error("Could not start the archive viewer.")
             return 1
         Thread(target=server.run, name="archive-viewer", daemon=True).start()
     try:
-        pacer = RequestPacer(stop)
         previous = read_status(args.archive / "status.json").get("retry_not_before")
         if type(previous) in (float, int) and math.isfinite(previous):
             pacer.cooldown_until = previous
@@ -199,8 +280,14 @@ def main(argv=None):
         with KidsnoteClient(pacer) as client:
             client.token = normalize_cookie(options["session_cookie"])
             while not stop.is_set():
-                pacer.wait_until(max(next_run, pacer.cooldown_until))
-                state = run_once(client, args.archive, options, stop)
+                target_time = max(next_run, pacer.cooldown_until)
+                controller.set_next_run(target_time)
+                pacer.wait_until(target_time, wake=None if args.once else controller.wake)
+                controller.set_running(True)
+                try:
+                    state = run_once(client, args.archive, options, stop)
+                finally:
+                    controller.set_running(False)
                 if args.once:
                     return 0 if state == "success" else 1
                 if state == "deferred":

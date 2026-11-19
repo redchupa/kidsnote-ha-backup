@@ -23,3 +23,6 @@ configuration:
     name: Back up notices
   include_menus:
     name: Back up menus
+  notify_ha:
+    name: Home Assistant event notification
+    description: Fire a kidsnote_backup_completed event in Home Assistant when new records are backed up.

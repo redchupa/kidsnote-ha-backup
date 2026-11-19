@@ -121,6 +121,20 @@ class PacingTest(unittest.TestCase):
         with self.assertRaises(Stopping):
             self.pacer.wait()
 
+    def test_wake_event_interrupts_schedule_but_respects_cooldown(self):
+        wake = Event()
+        wake.set()
+        self.pacer.wait_until(self.clock.time() + 3600, wake=wake)
+        self.assertEqual(self.clock.elapsed, 0)
+        self.assertFalse(wake.is_set())
+
+        # During cooldown, wake must not bypass cooldown_until
+        self.pacer.cooldown_until = self.clock.time() + 10
+        wake.set()
+        self.pacer.wait_until(self.clock.time() + 3600, wake=wake)
+        self.assertGreaterEqual(self.clock.elapsed, 10)
+        self.assertFalse(wake.is_set())
+
 
 class IncrementalTest(unittest.TestCase):
     def test_complete_unchanged_old_records_skip_api_detail_and_comments(self):

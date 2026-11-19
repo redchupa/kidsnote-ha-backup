@@ -52,10 +52,17 @@ class RequestPacer:
     def pause(self, delay: float):
         self._next_request = max(self._next_request, time.monotonic() + delay)
 
-    def wait_until(self, deadline: float):
+    def wait_until(self, deadline: float, wake: Event | None = None):
         while True:
-            remaining = deadline - time.time()
-            if self.stop.wait(min(max(0, remaining), 3600)):
+            now = time.time()
+            if wake is not None and wake.is_set() and now >= self.cooldown_until:
+                wake.clear()
+                if self.stop.wait(0):
+                    raise Stopping
+                return
+            remaining = deadline - now
+            slice_limit = 0.5 if wake is not None else 3600
+            if self.stop.wait(min(max(0, remaining), slice_limit)):
                 raise Stopping
             if remaining <= 0:
                 return

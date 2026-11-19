@@ -1,6 +1,6 @@
 name: Kidsnote HA Backup
 description: Back up Kidsnote reports, comments and media to local storage.
-version: "0.2.7"
+version: "0.3.0"
 slug: kidsnote_backup
 url: https://github.com/redchupa/kidsnote-ha-backup
 arch:
@@ -9,6 +9,7 @@ arch:
 startup: application
 boot: auto
 stage: stable
+homeassistant_api: true
 ingress: true
 ingress_port: 8099
 panel_admin: true
@@ -26,6 +27,7 @@ options:
   include_albums: true
   include_notices: true
   include_menus: true
+  notify_ha: false
 schema:
   username: str?
   password: password?
@@ -36,3 +38,4 @@ schema:
   include_albums: bool
   include_notices: bool
   include_menus: bool
+  notify_ha: bool?
