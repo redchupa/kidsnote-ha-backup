@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.7
+
+- Replaced the logo shown on the Home Assistant app page.
+
 ## 0.2.6
 
 - Added the Kidsnote HA Backup icon and logo to the Home Assistant app store and app page.
