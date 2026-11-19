@@ -40,11 +40,17 @@ Kidsnote HA Backup이 가족의 추억을 보관하는 데 도움이 됐다면, 
 
 Use the PayPal QR code above if you’d like to support the project from outside Korea.
 
-## 개발 및 라이선스
+## 개발
 
 ```bash
 python -m pip install -r kidsnote_backup/requirements.txt
 PYTHONPATH=kidsnote_backup python -m unittest discover -s tests -v
 ```
 
-키즈노트 로그인, 준비물·일정 탐지와 문서 텍스트 추출 코드는 [redchupa/kidsnote-backup](https://github.com/redchupa/kidsnote-backup)에서 가져와 로컬 백업용으로 수정했습니다. 이 프로젝트는 [MIT 라이선스](LICENSE)를 따릅니다. 키즈노트의 비공식 웹 API를 사용하므로 서비스 변경에 따라 업데이트가 필요할 수 있습니다.
+키즈노트 로그인, 준비물·일정 탐지와 문서 텍스트 추출 코드를 가져와 로컬 백업용으로 수정했습니다. [redchupa/kidsnote-backup](https://github.com/redchupa/kidsnote-backup)
+
+## 라이선스 및 면책
+
+Kidsnote HA Backup은 키즈노트나 Home Assistant와 공식 제휴하지 않은 독립 프로젝트입니다. 앱은 사용자의 Home Assistant 기기에서 키즈노트의 비공식 웹 API에 직접 요청하고, 백업 파일을 기기에 저장합니다. 키즈노트 서비스가 바뀌면 백업 기능에 영향이 생길 수 있습니다.
+
+앱은 MIT 라이선스에 따라 **현 상태 그대로** 제공됩니다. 적용 법률이 허용하는 범위에서 개발자와 저작권자는 명시적·묵시적 보증을 제공하지 않으며, 앱 사용으로 발생한 데이터 손실, 서비스 중단 또는 기타 손해에 대해 책임을 지지 않습니다. 사용자는 키즈노트 이용약관과 데이터 접근 권한을 준수하고 백업 결과를 확인할 책임이 있습니다. [MIT 라이선스 원문](LICENSE)

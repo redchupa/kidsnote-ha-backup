@@ -88,6 +88,12 @@ backup/
 - `status.json`의 `state`가 `partial`이면 일부 기록이나 첨부에 실패했다는 뜻입니다. 남은 기록은 계속 처리하고 다음 실행에서 다시 시도합니다. 세부 원인은 앱의 로그에 기록됩니다.
 - 사진과 영상은 원본 크기로 저장되므로 첫 백업이 오래 걸리거나 저장 공간을 많이 사용할 수 있습니다. 앱 데이터가 포함되는 Home Assistant 백업은 설정한 백업 저장 위치로 전송될 수 있습니다. 백업 폴더, Samba 공유, Home Assistant 백업 파일에는 가족의 개인 데이터가 들어가므로 접근 권한을 제한하세요.
 
+## 라이선스 및 면책
+
+이 앱은 키즈노트나 Home Assistant와 공식 제휴하지 않은 독립 프로젝트이며, 키즈노트의 비공식 웹 API를 사용합니다. 사용자는 키즈노트 이용약관과 데이터 접근 권한을 준수하고 백업 결과를 확인할 책임이 있습니다.
+
+앱은 MIT 라이선스에 따라 현 상태 그대로 제공됩니다. 적용 법률이 허용하는 범위에서 개발자와 저작권자는 명시적·묵시적 보증을 제공하지 않으며, 앱 사용으로 발생한 데이터 손실, 서비스 중단 또는 기타 손해에 대해 책임을 지지 않습니다. [MIT 라이선스 원문](https://github.com/redchupa/kidsnote-ha-backup/blob/main/LICENSE)
+
 ## English
 
 Open **Configuration**, enter your Kidsnote username and password, save, and start the app. For two-step verification, sign in from Chrome or Edge on a computer. Press **F12** or right-click and select **Inspect**, then open **Application → Storage → Cookies → https://www.kidsnote.com**. Copy the **Value** from the `sessionid` row into **Kidsnote session cookie (sessionid)**, save, and restart the app. Repeat when it expires. [Kidsnote web sign-in](https://www.kidsnote.com/kr/login)
@@ -97,3 +103,5 @@ The first scheduled run starts within 30 minutes of startup. Each repeat run wai
 Files are stored in the app's `/config/backup` directory. Open the app's folder in the Samba `app_configs` share (called `addon_configs` on older versions). Each item has metadata and local attachments. Reports, albums and notices also have a `note.txt`. Check `status.json` and the app log for run results. A partial run keeps completed downloads and retries missing files on the next run.
 
 Open **Web UI** to browse reports, media and comments, search by text, and review supply requests and upcoming dates extracted from readable attachments and posts. The viewer requires an administrator account and Supervisor 2026.11.0 or later.
+
+**License and disclaimer.** Kidsnote HA Backup is an independent project and is unaffiliated with Kidsnote and Home Assistant. It is provided as is under the MIT License. To the extent permitted by applicable law, the authors and copyright holders disclaim warranties and liability for losses arising from its use. Users are responsible for complying with Kidsnote’s terms, respecting data access permissions, and checking their backups. [MIT License](https://github.com/redchupa/kidsnote-ha-backup/blob/main/LICENSE)
