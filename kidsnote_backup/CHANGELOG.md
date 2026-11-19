@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.6
+
+- Added the Kidsnote HA Backup icon and logo to the Home Assistant app store and app page.
+- Changed the Home Assistant app stage to stable.
+
 ## 0.2.5
 
 - Pace all login, API and attachment requests. Wait at least one second after API requests and two seconds after attachment requests, including retries.
