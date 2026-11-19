@@ -6,6 +6,7 @@
 !client.py
 !doc_text.py
 !kidsnote_auth.py
+!pacing.py
 !supplies.py
 !viewer.py
 !web/

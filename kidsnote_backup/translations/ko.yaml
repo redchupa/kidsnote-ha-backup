@@ -18,7 +18,7 @@ configuration:
       비워두면 모든 자녀를 백업합니다.
   interval_hours:
     name: 백업 간격 (시간)
-    description: 앱이 시작되면 한 번 실행하고 이전 백업이 끝난 뒤 이 시간만큼 기다립니다.
+    description: 백업이 끝나면 이 시간에 최대 30분을 더해 기다립니다.
   include_albums:
     name: 앨범 백업
   include_notices:

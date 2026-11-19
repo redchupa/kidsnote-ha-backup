@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.5
+
+- Pace all login, API and attachment requests. Wait at least one second after API requests and two seconds after attachment requests, including retries.
+- Pause after HTTP 429 or 503, honor Retry-After, and keep the cooldown across restarts.
+- Spread backup start times and avoid repeated detail and comment requests for recently checked, unchanged older records.
+
 ## 0.2.4
 
 - Fixed pagination for Kidsnote reports, albums, notices, menus and comments.

@@ -46,7 +46,10 @@ async function get(endpoint, query, signal) {
 
 function setStatus(status) {
   const stamp = status.last_success_at;
-  const state = {failed: "최근 백업 실패", partial: "일부 백업 실패", stopped: "백업 중지됨"}[status.state];
+  const state = {
+    failed: "최근 백업 실패", partial: "일부 백업 실패",
+    stopped: "백업 중지됨", deferred: "키즈노트 응답으로 백업 일시 중지",
+  }[status.state];
   const formatted = stamp ? new Intl.DateTimeFormat("ko", {
     dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Seoul",
   }).format(new Date(stamp)) : "";

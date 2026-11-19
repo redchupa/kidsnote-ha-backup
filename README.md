@@ -1,6 +1,6 @@
 # Kidsnote HA Backup
 
-키즈노트 알림장과 첨부 파일을 **Home Assistant OS** 기기의 로컬 저장소로 백업하는 커뮤니티 앱입니다. 앱 안에서 여러 자녀의 알림장과 생활 기록, 댓글, 사진·영상, 앨범, 공지사항과 식단을 찾아볼 수 있습니다. 준비물과 앞으로의 일정은 알림장·공지·첨부문서에서 찾아 모아 보여줍니다. 백업은 앱을 시작하면 한 번 실행하고 이후 기본 24시간 간격으로 반복합니다.
+키즈노트 알림장과 첨부 파일을 **Home Assistant OS** 기기의 로컬 저장소로 백업하는 커뮤니티 앱입니다. 앱 안에서 여러 자녀의 알림장과 생활 기록, 댓글, 사진·영상, 앨범, 공지사항과 식단을 찾아볼 수 있습니다. 준비물과 앞으로의 일정은 알림장·공지·첨부문서에서 찾아 모아 보여줍니다. 백업은 앱을 시작한 뒤 최대 30분 이내에 시작하며, 이후 기본 24시간에 최대 30분을 더한 간격으로 반복합니다.
 
 [![Home Assistant에 저장소 추가](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Fredchupa%2Fkidsnote-ha-backup)
 

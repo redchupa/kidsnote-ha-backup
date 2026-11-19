@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import http.client
 import json
+import random
 import re
-import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from http.cookiejar import CookieJar
+
+from pacing import RequestPacer, TRANSIENT_DELAYS
 
 KIDSNOTE_BASE = "https://www.kidsnote.com"
 DEFAULT_USER_AGENT = (
@@ -17,21 +19,11 @@ DEFAULT_USER_AGENT = (
     "(KHTML, like Gecko) Chrome/128.0 Safari/537.36"
 )
 REQUEST_TIMEOUT = 20  # seconds, per attempt
-RETRY_DELAYS = (3, 10)  # waits between the 3 attempts at a transient failure
-MAX_RETRY_AFTER = 30  # cap on a server-sent Retry-After, in seconds
-_sleep = time.sleep  # swapped out in tests
 # Waits before retrying a login that collided with another login for the
 # same account (HTTP 409 "Already exists."), e.g. two children's jobs.
 LOGIN_BUSY_DELAYS = (5, 10, 20)
 
 
-def _jitter() -> float:
-    """0-3 s spread so parallel jobs don't retry in lockstep (time-based, swapped out in tests)."""
-    return (time.time_ns() % 3000) / 1000.0
-
-
-# Shown in the Actions log / failure annotation. Plain Korean for parents.
-# Single line each: they are written to $GITHUB_OUTPUT.
 # The web login form cleans what the parent types before sending it (login
 # page JS, 2026-09-14): id -> lower-case, first 32 chars, trimmed; password
 # -> every whitespace and Korean character removed. Doing the same makes a
@@ -83,50 +75,43 @@ def _opener(user_agent: str, jar: CookieJar | None = None) -> urllib.request.Ope
     return opener
 
 
-def _retry_wait(retry_after: str | None, default: float) -> float:
-    try:
-        return min(max(float(retry_after), 0.0), MAX_RETRY_AFTER)
-    except (TypeError, ValueError):
-        return default
-
-
 def _request(
     opener: urllib.request.OpenerDirector,
+    pacer: RequestPacer,
     method: str,
     path: str,
     *,
     body: dict | None = None,
 ) -> tuple[int, bytes]:
-    """Send one request, retrying network errors, 5xx and 429. Returns (status, body)."""
+    """Send a paced request, retrying transient failures. Returns (status, body)."""
     data = None if body is None else json.dumps(body).encode("utf-8")
-    attempts = len(RETRY_DELAYS) + 1
-    for attempt in range(attempts):
-        last = attempt == attempts - 1
+    for delay in (*TRANSIENT_DELAYS, None):
         req = urllib.request.Request(KIDSNOTE_BASE + path, data=data, method=method)
         if data is not None:
             req.add_header("Content-Type", "application/json")
             req.add_header("Origin", KIDSNOTE_BASE)
             req.add_header("Referer", f"{KIDSNOTE_BASE}/kr/login")
-        retry_after = None
+        pacer.wait()
         try:
             with opener.open(req, timeout=REQUEST_TIMEOUT) as resp:
                 status, raw = resp.status, resp.read()
         except urllib.error.HTTPError as e:
             status = e.code
-            retry_after = e.headers.get("Retry-After") if e.headers is not None else None
             try:
+                retry_after = e.headers.get("Retry-After") if e.headers is not None else None
+                pacer.check_response(status, retry_after)
                 raw = e.read()
             except (OSError, http.client.HTTPException):
                 raw = b""
             finally:
                 e.close()
         except (OSError, http.client.HTTPException) as e:  # URLError, timeout, DNS, dropped connection
-            if last:
+            if delay is None:
                 raise AuthError("network", f"kidsnote.com unreachable: {e}") from e
-            _sleep(RETRY_DELAYS[attempt])
+            pacer.pause(delay + random.uniform(0, 3))
             continue
-        if (status == 429 or status >= 500) and not last:
-            _sleep(_retry_wait(retry_after, RETRY_DELAYS[attempt]))
+        if status in (500, 502, 504) and delay is not None:
+            pacer.pause(delay + random.uniform(0, 3))
             continue
         return status, raw
     raise AssertionError("unreachable")
@@ -148,16 +133,21 @@ def _status_error(status: int, where: str) -> AuthError:
     return AuthError("unexpected", f"HTTP {status} on {where}")
 
 
-def login(username: str, password: str, user_agent: str = DEFAULT_USER_AGENT) -> str:
+def login(
+    username: str, password: str, user_agent: str = DEFAULT_USER_AGENT, *, pacer: RequestPacer | None = None,
+) -> str:
     """Log in with id/password and return the new ``sessionid`` value."""
     username, password = normalize_username(username), normalize_password(password)
     if not username or not password:
         raise AuthError("missing", "KIDSNOTE_USERNAME / KIDSNOTE_PASSWORD is empty")
     jar = CookieJar()
     opener = _opener(user_agent, jar)
+    pacer = pacer if pacer is not None else RequestPacer()
 
     quoted = urllib.parse.quote(username, safe="")
-    status, raw = _request(opener, "GET", f"/api/v1/second-factors/{quoted}/")
+    status, raw = _request(opener, pacer, "GET", f"/api/v1/second-factors/{quoted}/")
+    if status >= 500:
+        raise _status_error(status, "two-step verification check")
     if status == 200:
         info = _json(raw)
         if info.get("is_enabled") and info.get("second_factors"):
@@ -170,12 +160,12 @@ def login(username: str, password: str, user_agent: str = DEFAULT_USER_AGENT) ->
     # few seconds later succeeds, and both sessions stay valid (checked live).
     for attempt in range(len(LOGIN_BUSY_DELAYS) + 1):
         status, raw = _request(
-            opener, "POST", "/api/web/login/",
+            opener, pacer, "POST", "/api/web/login/",
             body={"username": username, "password": password, "remember_me": True},
         )
         if status != 409 or attempt == len(LOGIN_BUSY_DELAYS):
             break
-        _sleep(LOGIN_BUSY_DELAYS[attempt] + _jitter())
+        pacer.pause(LOGIN_BUSY_DELAYS[attempt] + random.uniform(0, 3))
     if status == 409:
         raise AuthError("login_busy", "HTTP 409 on /api/web/login/: another login for this account is in progress")
     if status != 200:

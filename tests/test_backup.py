@@ -103,6 +103,9 @@ class BackupTest(unittest.TestCase):
         self.options = read_options(self.options_path)
         self.client = KidsnoteClient()
         self.addCleanup(self.client.session.close)
+        wait = patch.object(self.client.pacer, "wait")
+        wait.start()
+        self.addCleanup(wait.stop)
         self.client.token = "SyntheticCookie"
         self.stop = Event()
 
@@ -182,7 +185,7 @@ class BackupTest(unittest.TestCase):
               patch("app.login", return_value="NewCookie") as login):
             self.assertEqual(list_children(self.client, self.options), children["results"])
             self.assertEqual(list_children(self.client, self.options), children["results"])
-        login.assert_called_once_with("synthetic", "example")
+        login.assert_called_once_with("synthetic", "example", pacer=self.client.pacer)
         self.assertEqual(get.call_args_list[1].kwargs["headers"]["Cookie"], "sessionid=NewCookie")
 
     def test_token_does_not_follow_cdn_redirect(self):

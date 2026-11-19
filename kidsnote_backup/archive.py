@@ -7,15 +7,17 @@ import logging
 import os
 import re
 import tempfile
+import time
 from contextlib import contextmanager
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 from urllib.parse import urljoin
 
 import requests
 
-from client import BackupError, HttpError, checked_https, identifier
+from client import BackupError, HttpError, TransportError, checked_https, identifier
 from kidsnote_auth import KIDSNOTE_BASE
+from pacing import Stopping
 
 LOG = logging.getLogger(__name__)
 V1 = "/api/v1"
@@ -26,10 +28,7 @@ FILE_KEYS = ("attached_files", "files", "attachments")
 URL_KEYS = ("original", "url", "src", "high", "high_resize", "large_resize")
 MENU_PHOTOS = ("morning_img", "morning_snack_img", "lunch_img", "afternoon_snack_img", "dinner_img")
 EXTENSION = re.compile(r"\.[a-z0-9]{1,10}", re.ASCII)
-
-
-class Stopping(Exception):
-    """The supervisor has requested shutdown."""
+REFRESH_SECONDS = 7 * 24 * 60 * 60
 
 
 @contextmanager
@@ -80,12 +79,46 @@ def menu_key(item):
     return f"{day}_{identifier(item['id'])}" if item.get("id") is not None else day
 
 
+def already_backed_up(folder, item):
+    modified = item.get("modified")
+    comment_count = item.get("num_comments")
+    if not isinstance(modified, str) or type(comment_count) is not int:
+        return False
+    now = time.time()
+    meta = folder / "meta.json"
+    try:
+        changed = datetime.fromisoformat(modified)
+        if changed.tzinfo is None:
+            changed = changed.replace(tzinfo=timezone.utc)
+        if changed.timestamp() > now - REFRESH_SECONDS:
+            return False
+        if now - meta.stat().st_mtime >= REFRESH_SECONDS or not (folder / "note.txt").is_file():
+            return False
+        cached = json.loads(meta.read_text(encoding="utf-8"))
+        if (cached.get("modified") != modified or cached.get("num_comments") != comment_count
+                or "_comments" not in cached):
+            return False
+        for record in (cached, *(cached["_comments"] or [])):
+            assets = record.get("_local_attachments")
+            if not isinstance(assets, list):
+                return False
+            for asset in assets:
+                filename = asset["file"]
+                target = folder / filename
+                if Path(filename).name != filename or not target.is_file() or target.stat().st_size == 0:
+                    return False
+    except (AttributeError, KeyError, OSError, OverflowError, TypeError, ValueError):
+        return False
+    return True
+
+
 class Archive:
     def __init__(self, client, root: Path, stop):
         self.client = client
         self.root = root
         self.stop = stop
         self.records = 0
+        self.unchanged = 0
         self.downloaded = 0
         self.errors = 0
 
@@ -128,7 +161,7 @@ class Archive:
                                 and size != int(expected)):
                             raise BackupError("An attachment transfer was incomplete.")
             except HttpError as exc:
-                if exc.status == 429:
+                if exc.status in (500, 502, 504):
                     raise
                 raise BackupError(f"Attachment server returned HTTP {exc.status}.") from exc
             except requests.RequestException as exc:
@@ -148,13 +181,15 @@ class Archive:
             if kind == "reports":
                 detail = self.client.json(f"{KIDSNOTE_BASE}{V12}/reports/{item_id}/")
                 item = {**item, **detail}
-            try:
-                comments = list(self.client.items(f"{V1}/{kind}/{item_id}/comments/"))
-            except HttpError as exc:
-                # Comments are not exposed for every notice or album.
-                if kind == "reports" or exc.status != 404:
-                    raise
-                comments = None
+            comments = []
+            if item.get("num_comments") != 0:
+                try:
+                    comments = list(self.client.items(f"{V1}/{kind}/{item_id}/comments/"))
+                except HttpError as exc:
+                    # Comments are not exposed for every notice or album.
+                    if kind == "reports" or exc.status != 404:
+                        raise
+                    comments = None
             attachments = self.post_media(folder, item)
             if comments is not None:
                 comments = [
@@ -186,7 +221,7 @@ class Archive:
         ]
 
     def failed(self, kind, exc):
-        if isinstance(exc, HttpError) and exc.status in (401, 429):
+        if isinstance(exc, TransportError) or (isinstance(exc, HttpError) and exc.status in (401, 500, 502, 504)):
             raise exc
         self.errors += 1
         message = str(exc) if isinstance(exc, BackupError) else type(exc).__name__
@@ -199,7 +234,11 @@ class Archive:
                 self.check_stop()
                 try:
                     key = menu_key(item) if kind == "menus" else identifier(item.get("id"))
-                    self.save(folder / key, kind, item)
+                    target = folder / key
+                    if kind != "menus" and already_backed_up(target, item):
+                        self.unchanged += 1
+                        continue
+                    self.save(target, kind, item)
                 except (BackupError, OSError) as exc:
                     self.failed(kind, exc)
         except (BackupError, OSError) as exc:

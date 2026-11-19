@@ -1,13 +1,12 @@
 """Read-only Kidsnote API and attachment client."""
 from __future__ import annotations
 
+import random
 from urllib.parse import urlencode, urljoin, urlsplit
 
 import requests
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
-
 from kidsnote_auth import DEFAULT_USER_AGENT, KIDSNOTE_BASE
+from pacing import RequestPacer, TRANSIENT_DELAYS
 
 
 class BackupError(RuntimeError):
@@ -18,6 +17,10 @@ class HttpError(BackupError):
     def __init__(self, status: int):
         self.status = status
         super().__init__(f"HTTP {status}")
+
+
+class TransportError(BackupError):
+    """Network retries were exhausted."""
 
 
 def checked_https(url: str):
@@ -47,16 +50,11 @@ def next_page(initial: str, current: str, value: str | int) -> str:
 
 
 class KidsnoteClient:
-    def __init__(self):
+    def __init__(self, pacer: RequestPacer | None = None):
         self.session = requests.Session()
         self.session.trust_env = False
         self.session.headers.update({"User-Agent": DEFAULT_USER_AGENT, "Accept-Language": "ko"})
-        retry = Retry(
-            total=2, backoff_factor=1, status_forcelist=(429, 500, 502, 503, 504),
-            allowed_methods={"GET"}, backoff_max=10, retry_after_max=30,
-            raise_on_status=False,
-        )
-        self.session.mount("https://", HTTPAdapter(max_retries=retry))
+        self.pacer = pacer if pacer is not None else RequestPacer()
         self.token = ""
 
     def __enter__(self):
@@ -64,6 +62,27 @@ class KidsnoteClient:
 
     def __exit__(self, *_):
         self.session.close()
+
+    def _request(self, url, headers, media):
+        for delay in (*TRANSIENT_DELAYS, None):
+            self.session.cookies.clear()
+            self.pacer.wait(media=media)
+            try:
+                response = self.session.get(
+                    url, headers=headers, stream=media, allow_redirects=False,
+                    timeout=(10, 60 if media else 30),
+                )
+            except requests.RequestException as exc:
+                if delay is None:
+                    raise TransportError("Could not reach Kidsnote or its media server.") from exc
+            else:
+                if response.status_code in (429, 503):
+                    with response:
+                        self.pacer.check_response(response.status_code, response.headers.get("Retry-After"))
+                if response.status_code not in (500, 502, 504) or delay is None:
+                    return response
+                response.close()
+            self.pacer.pause(delay + random.uniform(0, 3))
 
     def get(self, url: str, *, media: bool = False):
         for _ in range(6):
@@ -75,14 +94,7 @@ class KidsnoteClient:
             headers["Accept"] = "*/*" if media else "application/json"
             if media:
                 headers["Accept-Encoding"] = "identity"
-            self.session.cookies.clear()
-            try:
-                response = self.session.get(
-                    url, headers=headers, stream=media, allow_redirects=False,
-                    timeout=(10, 60 if media else 30),
-                )
-            except (requests.RequestException, ValueError) as exc:
-                raise BackupError("Connection to Kidsnote or its media server failed.") from exc
+            response = self._request(url, headers, media)
             if response.status_code == 200:
                 return response
             with response:

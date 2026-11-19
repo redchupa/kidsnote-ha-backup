@@ -4,18 +4,23 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import math
 import os
+import random
 import signal
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import Event, Thread
 
-from archive import Archive, Stopping, write_json
+from archive import Archive, write_json
 from client import BackupError, HttpError, KidsnoteClient, identifier
 from kidsnote_auth import AuthError, login, normalize_cookie, normalize_password, normalize_username
+from pacing import RequestDeferred, RequestPacer, Stopping
 from viewer import viewer_server
 
 LOG = logging.getLogger(__name__)
+BACKUP_SPREAD_SECONDS = 30 * 60
 
 
 def read_options(path: Path):
@@ -66,7 +71,7 @@ def list_children(client, options):
             raise BackupError("Set a valid session_cookie in the app configuration and restart.")
         raise BackupError("Set a Kidsnote username and password or session_cookie, then restart.")
     try:
-        client.token = login(options["username"], options["password"])
+        client.token = login(options["username"], options["password"], pacer=client.pacer)
     except AuthError as exc:
         hints = {
             "2fa_enabled": "Sign in with two-step verification in your browser and set session_cookie.",
@@ -82,14 +87,19 @@ def timestamp():
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-def write_status(path, status):
+def read_status(path):
     try:
-        previous = json.loads(path.read_text(encoding="utf-8"))
+        content = json.loads(path.read_text(encoding="utf-8"))
+        return content if isinstance(content, dict) else {}
     except (OSError, ValueError):
-        previous = {}
+        return {}
+
+
+def write_status(path, status):
+    previous = read_status(path)
     if status["state"] == "success":
         status["last_success_at"] = status["finished_at"]
-    elif isinstance(previous, dict):
+    else:
         status["last_success_at"] = previous.get("last_success_at")
     write_json(path, status)
 
@@ -113,6 +123,10 @@ def run_once(client, root, options, stop):
         state = "partial" if archive.errors else "success"
     except Stopping:
         state = "stopped"
+    except RequestDeferred as exc:
+        state = "deferred"
+        LOG.warning("HTTP %d from Kidsnote or its media server. Pausing all downloads for at least %.0f minutes.",
+                    exc.status, (client.pacer.cooldown_until - time.time()) / 60)
     except (BackupError, OSError) as exc:
         archive.errors += 1
         if isinstance(exc, HttpError) and exc.status == 401:
@@ -120,19 +134,23 @@ def run_once(client, root, options, stop):
         message = str(exc) if isinstance(exc, BackupError) else type(exc).__name__
         LOG.error("Backup failed: %s", message)
     try:
-        write_status(root / "status.json", {
+        status = {
             "state": state,
             "started_at": started,
             "finished_at": timestamp(),
             "records": archive.records,
+            "unchanged_records": archive.unchanged,
             "new_attachments": archive.downloaded,
             "errors": archive.errors,
-        })
+        }
+        if state == "deferred":
+            status["retry_not_before"] = client.pacer.cooldown_until
+        write_status(root / "status.json", status)
     except OSError as exc:
         LOG.error("Could not write backup status: %s", type(exc).__name__)
         state = "failed"
-    LOG.info("Backup %s: %d records, %d new attachments, %d errors.",
-             state, archive.records, archive.downloaded, archive.errors)
+    LOG.info("Backup %s: %d records saved, %d unchanged, %d new attachments, %d errors.",
+             state, archive.records, archive.unchanged, archive.downloaded, archive.errors)
     return state
 
 
@@ -166,13 +184,31 @@ def main(argv=None):
             return 1
         Thread(target=server.run, name="archive-viewer", daemon=True).start()
     try:
-        with KidsnoteClient() as client:
+        pacer = RequestPacer(stop)
+        previous = read_status(args.archive / "status.json").get("retry_not_before")
+        if type(previous) in (float, int) and math.isfinite(previous):
+            pacer.cooldown_until = previous
+        if args.once and pacer.cooldown_until > time.time():
+            LOG.warning("Backup is still waiting for the previous server cooldown.")
+            return 1
+        first_delay = 0.0
+        if not args.once and (options["username"] or options["session_cookie"]):
+            first_delay = random.uniform(0, BACKUP_SPREAD_SECONDS)
+            LOG.info("Backup startup stagger: %.0f seconds.", first_delay)
+        next_run = time.time() + first_delay
+        with KidsnoteClient(pacer) as client:
             client.token = normalize_cookie(options["session_cookie"])
             while not stop.is_set():
+                pacer.wait_until(max(next_run, pacer.cooldown_until))
                 state = run_once(client, args.archive, options, stop)
                 if args.once:
                     return 0 if state == "success" else 1
-                stop.wait(options["interval_hours"] * 3600)
+                if state == "deferred":
+                    next_run = pacer.cooldown_until
+                else:
+                    next_run = time.time() + options["interval_hours"] * 3600 + random.uniform(0, BACKUP_SPREAD_SECONDS)
+    except Stopping:
+        pass
     finally:
         if server is not None:
             server.close()

@@ -16,7 +16,7 @@ configuration:
       In YAML mode, use brackets, as in child_ids: [1234567]. Leave empty to back up all linked children.
   interval_hours:
     name: Backup interval (hours)
-    description: Runs on startup and waits this long after each run.
+    description: Waits this long after each run, plus up to 30 minutes.
   include_albums:
     name: Back up albums
   include_notices:

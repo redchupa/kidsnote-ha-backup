@@ -4,12 +4,12 @@
 
 1. 앱의 **구성** 탭에서 키즈노트 아이디와 비밀번호를 입력하고 저장합니다. 이 방법으로 로그인할 수 있으면 **세션 쿠키**는 비워두세요. 앱에서 로그인 세션이 만료되면 아이디와 비밀번호로 다시 로그인합니다.
 2. 키즈노트 계정에 **2단계 인증**이 켜져 있다면 아래의 [세션 쿠키 넣기](#세션-쿠키-넣기) 순서를 따라 쿠키 값을 저장합니다.
-3. 앱을 시작합니다. 부팅 후에도 실행하려면 **부팅 시 시작**을 사용합니다. 지금 한 번 백업하려면 앱을 시작하거나 재시작합니다.
+3. 앱을 시작합니다. 부팅 후에도 실행하려면 **부팅 시 시작**을 사용합니다. 여러 설치에서 요청이 몰리지 않도록 시작하거나 재시작한 뒤 최대 30분 사이에 백업을 시작합니다.
 
 | 구성 항목 | 기본 동작 |
 | --- | --- |
 | `child_ids` | 비워두면 계정에 연결된 모든 자녀를 백업합니다. 특정 자녀만 백업하려면 아래의 [자녀 ID 확인하기](#자녀-id-확인하기)를 참고하세요. |
-| `interval_hours` | 첫 실행 이후 매 백업이 끝난 시점부터 24시간 기다립니다. 1~168시간으로 변경할 수 있습니다. |
+| `interval_hours` | 백업이 끝나면 설정한 시간(기본 24시간)에 최대 30분을 더해 기다립니다. 1~168시간으로 변경할 수 있습니다. |
 | `include_albums` | 자녀별 앨범을 저장합니다. |
 | `include_notices`, `include_menus` | 백업 대상 자녀의 소속 기관별 공지 및 식단을 저장합니다. |
 
@@ -82,7 +82,9 @@ backup/
 ```
 
 - 각 글의 `note.txt`에는 제목과 본문이 들어갑니다. `meta.json`에는 상세 기록, 댓글, 로컬 첨부 파일 이름이 들어갑니다. 공지나 앨범의 댓글 API가 제공되지 않으면 `_comments`는 `null`입니다.
-- 매번 서버가 제공하는 목록과 기록을 다시 조회해 수정 내용을 반영합니다. 이미 내려받은 동일 첨부 파일은 다시 받지 않습니다. 키즈노트에서 사라진 기록과 기존 첨부는 로컬에 보존합니다.
+- 매번 목록을 조회합니다. 수정 시각과 댓글 수가 같은 오래된 기록은 최근 7일 이내에 확인했고 로컬 첨부가 모두 있으면 상세·댓글 조회를 건너뜁니다. 이미 내려받은 동일 첨부 파일은 다시 받지 않습니다. 키즈노트에서 사라진 기록과 기존 첨부는 로컬에 보존합니다.
+- 설치마다 한 번에 하나씩 요청합니다. 로그인과 API 요청 후에는 최소 1초, 사진·영상 등 첨부 요청 후에는 최소 2초를 기다립니다. 재시도와 다운로드가 다른 주소로 연결되는 경우에도 같은 제한이 적용됩니다.
+- HTTP 429 또는 503을 받으면 백업을 멈춥니다. 최소 1시간과 서버가 보낸 `Retry-After` 중 더 긴 시간에 최대 5분을 더해 기다린 뒤 다시 시도합니다. 앱을 재시작해도 이 대기 시간은 유지됩니다.
 - `status.json`의 `state`가 `partial`이면 일부 기록이나 첨부에 실패했다는 뜻입니다. 남은 기록은 계속 처리하고 다음 실행에서 다시 시도합니다. 세부 원인은 앱의 로그에 기록됩니다.
 - 사진과 영상은 원본 크기로 저장되므로 첫 백업이 오래 걸리거나 저장 공간을 많이 사용할 수 있습니다. 앱 데이터가 포함되는 Home Assistant 백업은 설정한 백업 저장 위치로 전송될 수 있습니다. 백업 폴더, Samba 공유, Home Assistant 백업 파일에는 가족의 개인 데이터가 들어가므로 접근 권한을 제한하세요.
 
@@ -90,7 +92,7 @@ backup/
 
 Open **Configuration**, enter your Kidsnote username and password, save, and start the app. For two-step verification, sign in from Chrome or Edge on a computer. Press **F12** or right-click and select **Inspect**, then open **Application → Storage → Cookies → https://www.kidsnote.com**. Copy the **Value** from the `sessionid` row into **Kidsnote session cookie (sessionid)**, save, and restart the app. Repeat when it expires. [Kidsnote web sign-in](https://www.kidsnote.com/kr/login)
 
-The app runs at startup and waits 24 hours after each run by default. To back up selected children, enter their numeric Kidsnote IDs (for example, `1234567`) in **Child IDs**. After signing in, look for the `id` next to each child's `name` on the linked page, or read the ID next to their name in the archive's child filter after a backup. Leave the list blank to back up every linked child. [Kidsnote child IDs](https://www.kidsnote.com/api/v1/me/children/)
+The first scheduled run starts within 30 minutes of startup. Each repeat run waits 24 hours by default, with up to 30 minutes added to stagger traffic. To back up selected children, enter their numeric Kidsnote IDs (for example, `1234567`) in **Child IDs**. After signing in, look for the `id` next to each child's `name` on the linked page, or read the ID next to their name in the archive's child filter after a backup. Leave the list blank to back up every linked child. [Kidsnote child IDs](https://www.kidsnote.com/api/v1/me/children/)
 
 Files are stored in the app's `/config/backup` directory. Open the app's folder in the Samba `app_configs` share (called `addon_configs` on older versions). Each item has metadata and local attachments. Reports, albums and notices also have a `note.txt`. Check `status.json` and the app log for run results. A partial run keeps completed downloads and retries missing files on the next run.
 
