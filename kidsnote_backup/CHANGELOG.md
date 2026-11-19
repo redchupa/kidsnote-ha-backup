@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.2
+
+- Fixed overly rounded corners (`999px`) in the Cute theme clipping video player controls, gallery photos, document previews, calendar day cards, and theme cards by introducing a dedicated `--radius-media` token (`1rem`).
+
 ## 0.3.1
 
 - Added a "🎬 동영상만 보기" (videos only) checkbox filter to reports, albums, and notices, plus a video badge on cards containing video attachments.
