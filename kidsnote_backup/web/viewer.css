@@ -230,6 +230,24 @@ main { padding-block: 2rem 5rem; min-height: 45vh; }
 .field { display: grid; gap: .3rem; color: var(--muted); font-size: .88rem; }
 .field:first-child { flex: 1 1 15rem; }
 .search-button { align-self: end; }
+.video-filter {
+  align-self: end;
+  display: inline-flex;
+  align-items: center;
+  gap: .45rem;
+  min-height: 44px;
+  padding: .45rem .85rem;
+  border-radius: var(--radius-ctrl);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  font-size: .9rem;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+  transition: border-color .15s, background .15s;
+}
+.video-filter:hover { border-color: var(--brand); background: var(--wash); }
+.video-filter:has(input:checked) { border-color: var(--brand); background: var(--wash); color: var(--brand); }
 
 input, select, button {
   font: inherit;
@@ -275,6 +293,18 @@ button:not(:disabled):hover, summary:hover { background: var(--wash); }
 .card:focus-visible, .card:hover { border-color: var(--brand); transform: translateY(-2px); }
 .card img { width: 100%; aspect-ratio: 5 / 3; object-fit: cover; background: var(--wash); }
 .card-content { padding: 1rem 1.15rem 1.15rem; }
+.card-meta { display: flex; align-items: center; justify-content: space-between; gap: .5rem; flex-wrap: wrap; }
+.video-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: .2rem;
+  padding: .1rem .5rem;
+  border-radius: 999px;
+  font-size: .76rem;
+  font-weight: 700;
+  background: var(--wash);
+  color: var(--brand);
+}
 .card h3 { overflow-wrap: anywhere; margin: .35rem 0; }
 .card p, .excerpt { color: var(--muted); overflow-wrap: anywhere; }
 .card time, .date { color: var(--brand); font-size: .9rem; font-variant-numeric: tabular-nums; }

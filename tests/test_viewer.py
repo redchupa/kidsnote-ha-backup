@@ -214,3 +214,27 @@ class ViewerTest(unittest.TestCase):
                 self.assertTrue(notify_home_assistant({"state": "success", "records": 3, "new_attachments": 2, "errors": 0}))
                 post_mock.assert_called_once()
                 self.assertFalse(notify_home_assistant({"state": "success", "records": 0}))
+
+    def test_video_only_catalog_filter(self):
+        # Existing report 2 has no video
+        self.assertEqual(self.get("/api/catalog?kind=reports&video=1").json["total"], 0)
+        self.assertFalse(self.get("/api/catalog?kind=reports").json["items"][0]["has_video"])
+
+        # Add report 3 with a video attachment
+        report3 = self.root / "children" / "1" / "reports" / "3"
+        report3.mkdir(parents=True)
+        (report3 / "clip.mp4").write_bytes(b"fake-mp4-data")
+        (report3 / "meta.json").write_text(json.dumps({
+            "title": "동영상 알림장", "date_written": "2026-11-19",
+            "content": "즐겁게 뛰어놀았어요.",
+            "_local_attachments": [{"file": "clip.mp4", "original_name": "놀이.mp4"}],
+            "_comments": [],
+        }), encoding="utf-8")
+
+        filtered = self.get("/api/catalog?kind=reports&video=1").json
+        self.assertEqual(filtered["total"], 1)
+        self.assertEqual(filtered["items"][0]["key"], "reports/1/3")
+        self.assertTrue(filtered["items"][0]["has_video"])
+
+        # All reports returns both (2 total)
+        self.assertEqual(self.get("/api/catalog?kind=reports").json["total"], 2)

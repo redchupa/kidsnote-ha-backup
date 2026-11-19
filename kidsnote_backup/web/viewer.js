@@ -375,7 +375,12 @@ function card(item, kind) {
     anchor.append(img);
   }
   const text = element("div", "card-content");
-  if (item.date) text.append(time(item.date));
+  if (item.date || item.has_video) {
+    const meta = element("div", "card-meta");
+    if (item.date) meta.append(time(item.date));
+    if (item.has_video) meta.append(element("span", "video-badge", "🎬 동영상"));
+    text.append(meta);
+  }
   text.append(element("h3", "", item.title || labels[kind]));
   if (item.excerpt && item.excerpt !== item.title) text.append(element("p", "", item.excerpt));
   anchor.append(text);
@@ -385,7 +390,12 @@ function card(item, kind) {
 // ------------------------------------------------------------------ Catalog list
 
 async function renderList(kind, params, signal) {
-  const filters = { q: params.get("q") || "", owner: params.get("owner") || "", month: params.get("month") || "" };
+  const filters = {
+    q: params.get("q") || "",
+    owner: params.get("owner") || "",
+    month: params.get("month") || "",
+    video: params.get("video") === "1" ? "1" : "",
+  };
   const page = Math.max(Number(params.get("page")) || 1, 1);
   const data = await get("catalog", { kind, ...filters, page }, signal);
   if (signal.aborted) return;
@@ -408,7 +418,18 @@ async function renderList(kind, params, signal) {
   ], filters.owner);
   const month = element("select");
   fillSelect(month, [{ id: "", name: "모든 달" }, ...data.months.map(day => ({ id: day, name: day }))], filters.month);
-  const refine = () => goList(kind, { q: search.value.trim(), owner: owner.value, month: month.value });
+  let videoOnly = null;
+  if (kind !== "menus") {
+    videoOnly = element("input");
+    videoOnly.type = "checkbox";
+    videoOnly.checked = filters.video === "1";
+  }
+  const refine = () => goList(kind, {
+    q: search.value.trim(),
+    owner: owner.value,
+    month: month.value,
+    video: videoOnly && videoOnly.checked ? "1" : "",
+  });
   const row = element("div", "filters");
   search.addEventListener("keydown", event => {
     if (event.key === "Enter") {
@@ -420,6 +441,12 @@ async function renderList(kind, params, signal) {
   owner.addEventListener("change", refine);
   month.addEventListener("change", refine);
   row.append(field("검색", search), apply, field(ownerLabel, owner), field("날짜", month));
+  if (videoOnly) {
+    videoOnly.addEventListener("change", refine);
+    const videoToggle = element("label", "video-filter");
+    videoToggle.append(videoOnly, element("span", "", "🎬 동영상만 보기"));
+    row.append(videoToggle);
+  }
 
   const fragment = document.createDocumentFragment();
   fragment.append(element("h2", "", labels[kind]), row, element("p", "result-count", data.total + "건"));

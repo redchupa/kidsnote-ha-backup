@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.1
+
+- Added a "🎬 동영상만 보기" (videos only) checkbox filter to reports, albums, and notices, plus a video badge on cards containing video attachments.
+
 ## 0.3.0
 
 - Added a settings modal (⚙) to customize the archive title, choose from 7 themes (System Auto, White, Black, Blue, Ivory, Cute, Futuristic), and select the default landing tab, synced across devices.

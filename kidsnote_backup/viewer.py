@@ -204,7 +204,12 @@ def summary(path, mtime, size):
     text = body(item)
     title = plain(item.get("title"))
     day = date_of(item)
-    cover = next((p.name for p, _ in attachments(item, path.parent) if p.suffix in IMAGE), "")
+    cover = next((p.name for p, _ in attachments(item, path.parent) if p.suffix.lower() in IMAGE), "")
+    has_video = any(
+        p.suffix.lower() in VIDEO
+        for entry in (item, *comments(item))
+        for p, _ in attachments(entry, path.parent)
+    )
     menu = "\n".join(plain(item.get(key)) for key in MENU)
     doc_texts = [
         extracted
@@ -217,6 +222,7 @@ def summary(path, mtime, size):
         "date": day.isoformat() if day else "",
         "excerpt": " ".join((text or menu).split())[:130],
         "cover": cover,
+        "has_video": has_video,
         "search": "\n".join([title, text, menu] + [body(comment) for comment in comments(item)] + doc_texts).casefold(),
     }
 
@@ -376,6 +382,7 @@ def create_app(root, proxy="172.30.32.2", backup_controller=None):
         owner = request.args.get("owner", "")
         query = request.args.get("q", "")[:200].casefold().split()
         month = request.args.get("month", "")
+        only_video = request.args.get("video", "").lower() in ("1", "true")
         if kind not in GROUPS or (owner and not ID.fullmatch(owner)):
             abort(400)
         page = max(1, request.args.get("page", 1, type=int))
@@ -394,6 +401,8 @@ def create_app(root, proxy="172.30.32.2", backup_controller=None):
                 continue
             if record["date"]:
                 months.add(record["date"][:7])
+            if only_video and not record["has_video"]:
+                continue
             if (month and not record["date"].startswith(month)) or not all(word in record["search"] for word in query):
                 continue
             items.append({"key": key, **{field: value for field, value in record.items() if field != "search"}})
