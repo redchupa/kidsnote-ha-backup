@@ -33,6 +33,7 @@ class KidsnoteStub:
         self.media_calls = []
         self.signature = "initial"
         self.video_ok = False
+        self.comment_media = False
         self.comment = "First comment"
 
     def __call__(self, url, *, headers, **kwargs):
@@ -70,7 +71,10 @@ class KidsnoteStub:
         if path == "/api/v1/reports/31/comments/":
             if "page" in query:
                 return response({"results": [{"id": 102, "content": "Second comment"}]})
-            return response({"results": [{"id": 101, "content": self.comment}], "next": "?page=2"})
+            comment = {"id": 101, "content": self.comment}
+            if self.comment_media:
+                comment["attached_images"] = ["https://cdn.example.test/comment.jpg"]
+            return response({"results": [comment], "next": "?page=2"})
         if path == "/api/v1/reports/32/comments/":
             return response({"results": []})
         if path == "/api/v1/children/1/albums/":
@@ -155,6 +159,20 @@ class BackupTest(unittest.TestCase):
         with patch.object(self.client.session, "get", side_effect=server):
             self.assertEqual(self.run_backup(), "success")
         self.assertEqual(server.api_calls, ["/api/v1/me/children/", "/api/v1_2/children/2/reports/"])
+
+    def test_comment_attachments_are_saved_and_reused(self):
+        server = KidsnoteStub()
+        server.video_ok = server.comment_media = True
+        with patch.object(self.client.session, "get", side_effect=server):
+            self.assertEqual(self.run_backup(), "success")
+            report = self.root / "children/1/reports/31"
+            metadata = self.load("children/1/reports/31/meta.json")
+            asset = metadata["_comments"][0]["_local_attachments"][0]["file"]
+            self.assertTrue(asset.startswith("comment_101_image_"))
+            self.assertEqual((report / asset).read_bytes(), b"test media")
+            server.media_calls.clear()
+            self.assertEqual(self.run_backup(), "success")
+            self.assertEqual(server.media_calls, [])
 
     def test_expired_cookie_logs_in_and_reuses_session(self):
         self.options.update({"username": "synthetic", "password": "example"})

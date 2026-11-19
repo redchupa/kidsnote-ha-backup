@@ -8,11 +8,12 @@ import os
 import signal
 from datetime import datetime, timezone
 from pathlib import Path
-from threading import Event
+from threading import Event, Thread
 
 from archive import Archive, Stopping, write_json
 from client import BackupError, HttpError, KidsnoteClient, identifier
 from kidsnote_auth import AuthError, login, normalize_cookie, normalize_password, normalize_username
+from viewer import viewer_server
 
 LOG = logging.getLogger(__name__)
 
@@ -147,13 +148,25 @@ def main(argv=None):
     stop = Event()
     for sig in (signal.SIGINT, signal.SIGTERM):
         signal.signal(sig, lambda *_: stop.set())
-    with KidsnoteClient() as client:
-        client.token = normalize_cookie(options["session_cookie"])
-        while not stop.is_set():
-            state = run_once(client, args.archive, options, stop)
-            if args.once:
-                return 0 if state == "success" else 1
-            stop.wait(options["interval_hours"] * 3600)
+    server = None
+    if not args.once:
+        try:
+            server = viewer_server(args.archive)
+        except OSError:
+            LOG.error("Could not start the archive viewer.")
+            return 1
+        Thread(target=server.run, name="archive-viewer", daemon=True).start()
+    try:
+        with KidsnoteClient() as client:
+            client.token = normalize_cookie(options["session_cookie"])
+            while not stop.is_set():
+                state = run_once(client, args.archive, options, stop)
+                if args.once:
+                    return 0 if state == "success" else 1
+                stop.wait(options["interval_hours"] * 3600)
+    finally:
+        if server is not None:
+            server.close()
     return 0
 
 

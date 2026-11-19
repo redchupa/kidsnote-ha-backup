@@ -13,6 +13,14 @@
 | `include_albums` | 자녀별 앨범을 저장합니다. |
 | `include_notices`, `include_menus` | 백업 대상 자녀의 소속 기관별 공지 및 식단을 저장합니다. |
 
+## 보관함
+
+앱 정보에서 **웹 UI 열기**를 누릅니다. 홈 화면에서 알림장, 앨범, 공지, 식단을 보고 자녀·기관 및 월별로 좁힐 수 있습니다. 검색은 제목·본문·댓글을 대상으로 합니다. 글 상세에서 생활 기록, 댓글, 사진·영상, 첨부 파일을 확인할 수 있습니다. 보관함을 열려면 관리자 계정과 Home Assistant Supervisor 2026.11.0 이상이 필요합니다.
+
+- **준비물**은 최근 30일의 선생님 요청을 원문에서 찾아 보여줍니다.
+- **달력**은 최근 60일의 알림장과 공지에서 날짜를 찾아 오늘부터 60일 앞까지 표시합니다. 각 일정과 요청에서 백업된 원문을 열 수 있습니다.
+- PDF, HWP, HWPX, PPTX, DOCX 첨부문서의 읽을 수 있는 텍스트는 글 상세에 표시되고 준비물·일정 탐지에도 쓰입니다. 이미지로만 스캔된 문서, 잠긴 문서, 20MB 초과 문서는 원본 파일로 보관됩니다. 단어나 날짜만으로 자동 탐지하기 어려운 내용은 원문에서 확인할 수 있습니다.
+
 ## 저장 위치와 파일 복사
 
 앱 컨테이너의 `/config/backup`에 저장합니다. Windows에서 파일을 복사하려면 Home Assistant의 Samba share 앱에서 `app_configs` 공유를 활성화하고 파일 탐색기에서 `\\homeassistant\app_configs`로 접속합니다. 호스트 이름이 다르면 Home Assistant의 IP 주소를 사용하세요. 이전 Samba에서는 공유 이름이 `addon_configs`일 수 있습니다. 이 공유 안의 키즈노트 앱 폴더 `<저장소-ID>_kidsnote_backup/backup`을 엽니다.
@@ -38,3 +46,5 @@ Open **Configuration**, enter your Kidsnote username and password, save, and sta
 The app runs at startup and waits 24 hours after each run by default. Use `interval_hours` to change the wait, `child_ids` to select children (empty means all linked children), and the `include_*` settings to control albums, notices, and menus.
 
 Files are stored in the app's `/config/backup` directory. Open the app's folder in the Samba `app_configs` share (called `addon_configs` on older versions). Each item has metadata and local attachments. Reports, albums and notices also have a `note.txt`. Check `status.json` and the app log for run results. A partial run keeps completed downloads and retries missing files on the next run.
+
+Open **Web UI** to browse reports, media and comments, search by text, and review supply requests and upcoming dates extracted from readable attachments and posts. The viewer requires an administrator account and Supervisor 2026.11.0 or later.

@@ -155,14 +155,15 @@ class Archive:
                 if kind == "reports" or exc.status != 404:
                     raise
                 comments = None
+            attachments = self.post_media(folder, item)
+            if comments is not None:
+                comments = [
+                    {**comment, "_local_attachments": self.post_media(
+                        folder, comment, f"comment_{identifier(comment['id'])}_"
+                    )} if comment.get("id") is not None else comment
+                    for comment in comments
+                ]
             item = {**item, "_comments": comments}
-            attachments = []
-            for keys, label, ext in (
-                (IMAGE_KEYS, "image", ".jpg"), (VIDEO_KEYS, "video", ".mp4"),
-                (FILE_KEYS, "file", ".bin"),
-            ):
-                for obj in attachment_list(first_value(item, keys)):
-                    attachments.append(self.media(folder, obj, label, ext))
             body = first_value(item, ("content", "body", "report"))
             heading = item.get("title")
             lines = [value for value in (heading, body) if isinstance(value, str) and value]
@@ -173,6 +174,16 @@ class Archive:
         self.records += 1
         if self.records % 100 == 0:
             LOG.info("Progress: %d records saved, %d new attachments.", self.records, self.downloaded)
+
+    def post_media(self, folder, item, prefix=""):
+        return [
+            self.media(folder, obj, prefix + label, extension)
+            for keys, label, extension in (
+                (IMAGE_KEYS, "image", ".jpg"), (VIDEO_KEYS, "video", ".mp4"),
+                (FILE_KEYS, "file", ".bin"),
+            )
+            for obj in attachment_list(first_value(item, keys))
+        ]
 
     def failed(self, kind, exc):
         if isinstance(exc, HttpError) and exc.status in (401, 429):
@@ -197,8 +208,11 @@ class Archive:
     def run(self, children, options):
         centers = set()
         for child in children:
+            self.check_stop()
             child_id = identifier(child.get("id"))
             root = self.root / "children" / child_id
+            if isinstance(child.get("name"), str):
+                write_json(root / "profile.json", {"name": child["name"]})
             self.collection(
                 f"{V12}/children/{child_id}/reports/", root / "reports", "reports",
                 alternate="reports", tz="Asia/Seoul", child=child_id,

@@ -1,3 +1,3 @@
 # Kidsnote Local Backup
 
-Back up Kidsnote content to your Home Assistant device. The app supports automatic local copies of reports, photos, videos, files, albums, notices, and menus. See the Documentation tab for setup and file access.
+Back up and browse Kidsnote content on your Home Assistant device. Open the private archive to read reports, view photos and videos, and find supply requests or upcoming dates from posts and attachments. See the Documentation tab for setup and file access.

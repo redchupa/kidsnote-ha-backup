@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>키즈노트 보관함</title>
+  <link rel="stylesheet" href="./assets/viewer.css">
+  <script defer src="./assets/viewer.js"></script>
+</head>
+<body>
+  <a class="skip" href="#main">본문으로 건너뛰기</a>
+  <header class="masthead shell">
+    <div>
+      <h1>키즈노트 보관함</h1>
+      <p id="backup-status" aria-live="polite"></p>
+    </div>
+  </header>
+  <nav class="tabs shell" aria-label="보관함 메뉴">
+    <a href="#reports">알림장</a>
+    <a href="#albums">앨범</a>
+    <a href="#notices">공지</a>
+    <a href="#menus">식단</a>
+    <a href="#supplies">준비물</a>
+    <a href="#calendar">달력</a>
+  </nav>
+  <main class="shell" id="main" tabindex="-1" aria-busy="true">
+    <p class="empty" role="status">보관함을 불러오는 중입니다.</p>
+  </main>
+</body>
+</html>

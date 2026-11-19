@@ -1,6 +1,6 @@
 name: Kidsnote Local Backup
 description: Back up Kidsnote reports, comments and media to local storage.
-version: "0.1.0"
+version: "0.2.0"
 slug: kidsnote_backup
 url: https://github.com/redchupa/home-assistant-kidsnote-backup
 arch:
@@ -9,6 +9,11 @@ arch:
 startup: application
 boot: auto
 stage: experimental
+ingress: true
+ingress_port: 8099
+panel_admin: true
+panel_icon: mdi:book-open-page-variant-outline
+panel_title: Kidsnote
 map:
   - type: addon_config
     read_only: false

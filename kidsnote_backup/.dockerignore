@@ -4,4 +4,9 @@
 !app.py
 !archive.py
 !client.py
+!doc_text.py
 !kidsnote_auth.py
+!supplies.py
+!viewer.py
+!web/
+!web/**
