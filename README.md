@@ -4,6 +4,8 @@
 
 [![Home Assistant에 저장소 추가](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Fredchupa%2Fkidsnote-ha-backup)
 
+[후원하기](#후원)
+
 1. 위 버튼으로 저장소를 추가하거나 Home Assistant의 **설정 → 앱 → 앱 설치 → ⋮ → 저장소**에서 이 저장소의 주소를 추가합니다.
 2. **Kidsnote HA Backup**을 설치합니다. 지원 아키텍처는 `amd64`와 `aarch64`입니다.
 3. 앱의 **구성** 탭에서 키즈노트 자격증명을 저장한 뒤 앱을 시작합니다.
@@ -16,6 +18,27 @@
 ## English
 
 A community app for Home Assistant OS (amd64 and arm64). It copies Kidsnote reports, comments, media, albums, notices and menus to local storage. Add this repository with the button above, install **Kidsnote HA Backup**, enter your Kidsnote credentials in **Configuration**, and start the app. If you installed Kidsnote Local Backup before the rename, update it from the repository already registered in Home Assistant to keep using your existing archive. See [setup and storage details](kidsnote_backup/DOCS.md#english).
+
+## 후원
+
+Kidsnote HA Backup이 가족의 추억을 보관하는 데 도움이 됐다면, 토스나 PayPal로 개발을 응원해 주세요.
+
+<table>
+  <tr>
+    <td align="center">
+      <strong>토스</strong><br>
+      <img src="https://raw.githubusercontent.com/redchupa/kr_baby_kit/main/images/toss-donation.png" alt="토스 후원 QR 코드" width="180">
+    </td>
+    <td align="center">
+      <strong>PayPal</strong><br>
+      <img src="https://raw.githubusercontent.com/redchupa/kr_baby_kit/main/images/paypal-donation.png" alt="PayPal donation QR code" width="180">
+    </td>
+  </tr>
+</table>
+
+**계좌이체** 토스뱅크 `1000-1261-7813` (우\*만)
+
+Use the PayPal QR code above if you’d like to support the project from outside Korea.
 
 ## 개발 및 라이선스
 
