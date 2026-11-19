@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.3
+
+- Fixed the child ID input so the Home Assistant configuration form submits a list.
+- Preserved support for existing numeric lists and documented the YAML syntax.
+
 ## 0.2.2
 
 - Renamed the app and sidebar entry to Kidsnote HA Backup and moved the GitHub address to redchupa/kidsnote-ha-backup.

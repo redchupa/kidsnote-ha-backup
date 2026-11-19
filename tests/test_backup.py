@@ -215,6 +215,15 @@ class BackupTest(unittest.TestCase):
         with self.assertRaisesRegex(BackupError, "child_ids"):
             read_options(self.options_path)
 
+    def test_child_id_lists_from_the_ui_and_existing_installations(self):
+        for ids in ([1234567, 7890123], ["1234567", "7890123"], [1234567, "7890123"]):
+            with self.subTest(ids=ids):
+                self.options_path.write_text(json.dumps({"child_ids": ids}), encoding="utf-8")
+                self.assertEqual(read_options(self.options_path)["child_ids"], {"1234567", "7890123"})
+        self.options_path.write_text('{"child_ids": 1234567}', encoding="utf-8")
+        with self.assertRaisesRegex(BackupError, r"child_ids: \[1234567\]"):
+            read_options(self.options_path)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -12,8 +12,8 @@ configuration:
   child_ids:
     name: Child IDs (numbers)
     description: >-
-      Enter the numeric ID assigned by Kidsnote, for example 1234567. Add one number per child.
-      Leave blank to back up all linked children. See the Documentation tab for where to find each ID.
+      Type an ID such as 1234567 and press Enter to add it to the list. Add one per child.
+      In YAML mode, use brackets, as in child_ids: [1234567]. Leave empty to back up all linked children.
   interval_hours:
     name: Backup interval (hours)
     description: Runs on startup and waits this long after each run.

@@ -1,6 +1,6 @@
 name: Kidsnote HA Backup
 description: Back up Kidsnote reports, comments and media to local storage.
-version: "0.2.2"
+version: "0.2.3"
 slug: kidsnote_backup
 url: https://github.com/redchupa/kidsnote-ha-backup
 arch:
@@ -31,7 +31,7 @@ schema:
   password: password?
   session_cookie: password?
   child_ids:
-    - int(1,)
+    - match(^[1-9][0-9]{0,29}\Z)
   interval_hours: int(1,168)
   include_albums: bool
   include_notices: bool

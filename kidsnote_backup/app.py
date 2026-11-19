@@ -27,9 +27,18 @@ def read_options(path: Path):
     if type(hours) is not int or not 1 <= hours <= 168:
         raise BackupError("interval_hours must be an integer from 1 to 168.")
     children = raw.get("child_ids", [])
-    if not isinstance(children, list) or any(type(value) is not int or value < 1 for value in children):
-        raise BackupError("child_ids must be a list of positive integers.")
-    options = {"interval_hours": hours, "child_ids": {str(value) for value in children}}
+    if not isinstance(children, list):
+        raise BackupError("child_ids must be a list. Example: child_ids: [1234567].")
+    selected = set()
+    for child in children:
+        try:
+            child_id = identifier(child)
+        except BackupError as exc:
+            raise BackupError("child_ids must contain only positive integer IDs.") from exc
+        if child_id.startswith("0"):
+            raise BackupError("child_ids must contain only positive integer IDs.")
+        selected.add(child_id)
+    options = {"interval_hours": hours, "child_ids": selected}
     for key in ("username", "password", "session_cookie"):
         value = raw.get(key)
         if value is not None and not isinstance(value, str):
