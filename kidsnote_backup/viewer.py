@@ -361,4 +361,4 @@ def create_app(root, proxy="172.30.32.2"):
 
 
 def viewer_server(root):
-    return create_server(create_app(root), host="0.0.0.0", port=8099, threads=4)
+    return create_server(create_app(root), host="0.0.0.0", port=8099, threads=8)

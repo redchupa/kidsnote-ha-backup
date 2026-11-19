@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.4
+
+- Fixed pagination for Kidsnote reports, albums, notices, menus and comments.
+- Increased the number of requests the archive viewer can handle concurrently.
+
 ## 0.2.3
 
 - Fixed the child ID input so the Home Assistant configuration form submits a list.

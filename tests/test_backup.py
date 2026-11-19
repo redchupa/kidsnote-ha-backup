@@ -52,7 +52,7 @@ class KidsnoteStub:
                 {"id": 2, "enrollment": [{"center_id": 12}]},
             ]})
         if path == "/api/v1_2/children/1/reports/":
-            if "cursor" in query:
+            if query.get("page") == ["opaque+token="]:
                 return response({"results": [{"id": 31}, {"id": 32}]})
             return response({"results": [{"id": 31}], "next": "opaque+token="})
         if path in ("/api/v1_2/children/2/reports/", "/api/v1/children/2/albums/"):
@@ -206,6 +206,17 @@ class BackupTest(unittest.TestCase):
             with self.assertRaisesRegex(BackupError, "did not terminate"):
                 list(self.client.items("/api/v1/me/children/"))
         self.assertEqual(get.call_count, 2)
+
+    def test_numeric_next_pages_are_passed_to_kidsnote(self):
+        replies = [
+            response({"results": [{"id": 1}], "next": 2}),
+            response({"results": [{"id": 2}], "next": None}),
+        ]
+        with patch.object(self.client.session, "get", side_effect=replies) as get:
+            items = list(self.client.items("/api/v1/centers/1/menu/", page_size=1))
+        self.assertEqual(items, [{"id": 1}, {"id": 2}])
+        query = parse_qs(urlsplit(get.call_args_list[1].args[0]).query)
+        self.assertEqual(query, {"page_size": ["1"], "page": ["2"]})
 
     def test_configuration_validation(self):
         self.options_path.write_text('{"interval_hours": 0}', encoding="utf-8")

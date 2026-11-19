@@ -35,10 +35,15 @@ def first_party(url: str) -> bool:
     return checked_https(url).hostname == urlsplit(KIDSNOTE_BASE).hostname
 
 
-def next_page(initial: str, current: str, value: str) -> str:
-    if value.startswith(("https://", "http://", "/", "?")):
-        return urljoin(current, value)
-    return initial + ("&" if "?" in initial else "?") + urlencode({"cursor": value})
+def next_page(initial: str, current: str, value: str | int) -> str:
+    if isinstance(value, str):
+        if value.startswith(("https://", "http://", "/", "?")):
+            return urljoin(current, value)
+    elif type(value) is not int or value < 1:
+        raise BackupError("Kidsnote returned an unexpected pagination token.")
+    # Kidsnote's bare continuation is passed as page, including opaque strings
+    # from reports, albums and notices and integer page numbers from other lists.
+    return initial + ("&" if "?" in initial else "?") + urlencode({"page": value})
 
 
 class KidsnoteClient:
@@ -119,9 +124,9 @@ class KidsnoteClient:
                     seen_ids.add(key)
                 yield item
             following = payload.get("next")
-            if following and not isinstance(following, str):
-                raise BackupError("Kidsnote returned an unexpected pagination token.")
-            url = next_page(initial, url, following) if following else ""
+            if following is None or following == "":
+                return
+            url = next_page(initial, url, following)
 
 
 def identifier(value) -> str:
