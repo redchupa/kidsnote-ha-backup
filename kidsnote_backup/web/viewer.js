@@ -132,7 +132,14 @@ function formatEta(seconds) {
   return rem ? "약 " + hours + "시간 " + rem + "분 남음" : "약 " + hours + "시간 남음";
 }
 
-function setStatus(status, running = false, progress = null) {
+function formatKstTime(epochSeconds) {
+  if (typeof epochSeconds !== "number" || !Number.isFinite(epochSeconds) || epochSeconds <= 0) return "";
+  return new Intl.DateTimeFormat("ko", {
+    hour: "2-digit", minute: "2-digit", timeZone: "Asia/Seoul",
+  }).format(new Date(epochSeconds * 1000));
+}
+
+function setStatus(status, running = false, progress = null, nextRun = 0) {
   const stamp = status?.last_success_at;
   let state;
   if (running) {
@@ -148,6 +155,8 @@ function setStatus(status, running = false, progress = null) {
       if (progress.downloaded) parts.push("첨부 " + progress.downloaded + "개");
     }
     state = parts.join(" · ");
+  } else if (!stamp && nextRun && nextRun * 1000 > Date.now()) {
+    state = "첫 백업 예정 " + formatKstTime(nextRun) + "경";
   } else {
     state = {
       failed: "최근 백업 실패", partial: "일부 백업 실패",
@@ -190,7 +199,7 @@ function updateBackupButton(info) {
     btn.removeAttribute("aria-disabled");
     btn.textContent = "지금 백업";
   }
-  setStatus(info.status, info.running, info.progress);
+  setStatus(info.status, info.running, info.progress, info.next_run);
 }
 
 async function pollBackupStatus() {
@@ -227,7 +236,10 @@ async function triggerManualBackup() {
     return;
   }
   if (info && !info.status?.last_success_at) {
-    showToast("첫 백업이 완료된 후 수동 백업을 사용할 수 있습니다.");
+    const when = info.next_run && info.next_run * 1000 > Date.now() ? formatKstTime(info.next_run) : "";
+    showToast(when
+      ? "첫 백업이 " + when + "경 자동으로 시작됩니다. 완료된 후 수동 백업을 사용할 수 있습니다."
+      : "첫 백업이 완료된 후 수동 백업을 사용할 수 있습니다.");
     return;
   }
   const btn = document.querySelector("#backup-now");

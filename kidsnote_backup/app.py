@@ -9,7 +9,7 @@ import os
 import random
 import signal
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from threading import Event, Lock, Thread
 
@@ -317,8 +317,13 @@ def main(argv=None):
         first_delay = 0.0
         if not args.once and (options["username"] or options["session_cookie"]):
             first_delay = random.uniform(0, BACKUP_SPREAD_SECONDS)
-            LOG.info("Backup startup stagger: %.0f seconds.", first_delay)
         next_run = time.time() + first_delay
+        if first_delay > 0:
+            start_kst = datetime.fromtimestamp(next_run, timezone(timedelta(hours=9))).strftime("%H:%M")
+            LOG.info(
+                "Backup startup stagger: %.0f seconds (키즈노트 서버 분산을 위해 약 %d분 후 %s경 백업을 자동 시작합니다).",
+                first_delay, max(1, round(first_delay / 60)), start_kst,
+            )
         with KidsnoteClient(pacer) as client:
             client.token = normalize_cookie(options["session_cookie"])
             while not stop.is_set():

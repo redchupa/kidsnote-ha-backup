@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.9
+
+- Displayed the scheduled KST start time for the initial backup stagger in both the app logs and the web UI status bar / toast.
+
 ## 0.3.8
 
 - Logged an initial backup notice and rough estimated duration range (from each collection's total `count`) plus live measured remaining time (ETA) in both the app logs and web UI header so users know how long the first backup will take.
