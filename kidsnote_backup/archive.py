@@ -552,6 +552,11 @@ class Archive:
                             pass
                 except (BackupError, OSError) as exc:
                     self.failed(kind, exc)
+        except HttpError as exc:
+            if kind in ("medications", "return_homes") and exc.status in (403, 404):
+                LOG.info("[%s] 이용 중인 원에서 해당 메뉴를 사용할 수 없습니다 (HTTP %d).", label, exc.status)
+            else:
+                self.failed(kind, exc)
         except (BackupError, OSError) as exc:
             self.failed(kind, exc)
         if collection_id and self.errors == errors_before:

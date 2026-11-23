@@ -23,6 +23,7 @@ from viewer import viewer_server
 
 LOG = logging.getLogger(__name__)
 BACKUP_SPREAD_SECONDS = 30 * 60
+STARTUP_STAGGER_SECONDS = 2 * 60
 INITIAL_STAGGER_SECONDS = 30
 
 
@@ -242,8 +243,8 @@ def run_once(client, root, options, stop, progress=None):
         LOG.info("Starting backup for %d children.", len(children))
         if not read_status(root / "status.json").get("last_success_at"):
             LOG.info(
-                "첫 백업을 시작합니다. 키즈노트 서버 보호를 위해 요청 간격을 두고 천천히 내려받으므로, "
-                "알림장·앨범 사진이 많으면 수십 분~수 시간 걸릴 수 있습니다. 완료될 때까지 앱을 중지하지 말아 주세요."
+                "첫 백업을 시작합니다. 키즈노트 서버 보호를 위해 요청 간격(API 1초·첨부 2초)을 두고 천천히 내려받으므로, "
+                "1~2년치 기록과 사진이 많으면 약 2~5시간 이상 소요될 수 있습니다. 완료될 때까지 앱을 중지하지 말아 주세요."
             )
         archive.run(children, options)
         state = "partial" if archive.errors else "success"
@@ -331,7 +332,7 @@ def main(argv=None):
             elif initial_run:
                 first_delay = random.uniform(5, INITIAL_STAGGER_SECONDS)
             else:
-                first_delay = random.uniform(0, BACKUP_SPREAD_SECONDS)
+                first_delay = random.uniform(10, STARTUP_STAGGER_SECONDS)
         next_run = time.time() + first_delay
         if resuming and not args.once:
             LOG.info("이전 백업이 중단된 기록이 있어 잠시 후 중단 지점부터 이어서 백업을 재개합니다.")
@@ -340,8 +341,8 @@ def main(argv=None):
         elif first_delay > 0:
             start_kst = datetime.fromtimestamp(next_run, timezone(timedelta(hours=9))).strftime("%H:%M")
             LOG.info(
-                "Backup startup stagger: %.0f seconds (키즈노트 서버 분산을 위해 약 %d분 후 %s경 백업을 자동 시작합니다).",
-                first_delay, max(1, round(first_delay / 60)), start_kst,
+                "Backup startup stagger: %.0f seconds (약 %.0f초 후 %s경 백업을 자동 시작합니다).",
+                first_delay, first_delay, start_kst,
             )
         with KidsnoteClient(pacer) as client:
             client.token = normalize_cookie(options["session_cookie"])

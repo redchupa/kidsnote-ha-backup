@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.1
+
+- Shortened restart startup stagger from up to 30 minutes to 10–120 seconds (keeping the 0–30 minute spread for recurring 24-hour intervals).
+- Updated the initial backup notice with a more realistic 2–5+ hour estimate for multi-year archives under standard pacing.
+- Gracefully handled unavailable optional menus (schedules, medications, return-home, temperatures returning HTTP 403/404 or empty) without recording errors, and showed a clear empty-state explanation in the web UI.
+
 ## 0.4.0
 
 - Added backup and viewer support (with new tabs and calendar integration) for 4 additional Kidsnote menus, all filtered from the earliest report date onward:

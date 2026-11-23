@@ -534,9 +534,19 @@ async function renderList(kind, params, signal) {
     grid.append(...data.items.map(item => card(item, kind)));
     fragment.append(grid);
   } else {
-    fragment.append(message(data.status.last_success_at || data.total || Object.values(filters).some(Boolean)
-      ? "조건에 맞는 기록이 없습니다."
-      : "저장된 기록이 없습니다. 첫 백업이 끝나면 여기에 표시됩니다."));
+    const optionalMenus = new Set(["schedules", "medications", "return_homes", "temperatures"]);
+    const hasFilter = Object.values(filters).some(Boolean);
+    let emptyText;
+    if (hasFilter) {
+      emptyText = "조건에 맞는 기록이 없습니다.";
+    } else if (data.status.last_success_at || data.total) {
+      emptyText = optionalMenus.has(kind)
+        ? "저장된 " + labels[kind] + " 기록이 없습니다. 이용 중인 원에서 해당 메뉴를 사용하지 않거나 등록된 기록이 없을 수 있습니다."
+        : "저장된 기록이 없습니다.";
+    } else {
+      emptyText = "저장된 기록이 없습니다. 첫 백업이 끝나면 여기에 표시됩니다.";
+    }
+    fragment.append(message(emptyText));
   }
   const pages = Math.ceil(data.total / pageSize);
   if (pages > 1) {
