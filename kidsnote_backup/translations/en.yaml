@@ -1,16 +1,17 @@
 configuration:
   username:
     name: Kidsnote username
+    description: For standard accounts, enter only username and password — the session cookie is issued and renewed automatically.
   password:
     name: Kidsnote password
   session_cookie:
-    name: Kidsnote session cookie (sessionid)
+    name: Kidsnote session cookie (Optional · 2FA / social login only)
     description: >-
-      Leave blank if username and password sign-in works. For two-step verification, sign in at
-      https://www.kidsnote.com/kr/login on a computer, then open F12 → Application → Cookies →
+      Leave blank if username and password sign-in works (auto-renewed). Only for two-step verification or social login:
+      sign in at https://www.kidsnote.com/kr/login on a computer, then open F12 → Application → Cookies →
       www.kidsnote.com and copy only the Value for sessionid. See the Documentation tab for the full steps.
   child_ids:
-    name: Child IDs (numbers)
+    name: Child IDs (Optional · leave empty for all)
     description: >-
       Leave empty to back up all linked children. To choose specific children, sign in to Kidsnote in a PC browser
       and open https://www.kidsnote.com/api/v1/me/children/ in a new tab.

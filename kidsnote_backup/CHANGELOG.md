@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.2
+
+- Clarified in the app configuration labels that `session_cookie` (2FA/social login only) and `child_ids` are optional, and noted automatic session cookie issuance/renewal for standard username/password logins.
+
 ## 0.4.1
 
 - Shortened restart startup stagger from up to 30 minutes to 10–120 seconds (keeping the 0–30 minute spread for recurring 24-hour intervals).
