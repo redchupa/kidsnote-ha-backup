@@ -23,6 +23,7 @@ from viewer import viewer_server
 
 LOG = logging.getLogger(__name__)
 BACKUP_SPREAD_SECONDS = 30 * 60
+INITIAL_STAGGER_SECONDS = 30
 
 
 def read_options(path: Path):
@@ -318,11 +319,19 @@ def main(argv=None):
     try:
         first_delay = 0.0
         resuming = (args.archive / "checkpoint.json").is_file()
+        initial_run = not read_status(args.archive / "status.json").get("last_success_at")
         if not args.once and (options["username"] or options["session_cookie"]):
-            first_delay = 5.0 if resuming else random.uniform(0, BACKUP_SPREAD_SECONDS)
+            if resuming:
+                first_delay = 5.0
+            elif initial_run:
+                first_delay = random.uniform(5, INITIAL_STAGGER_SECONDS)
+            else:
+                first_delay = random.uniform(0, BACKUP_SPREAD_SECONDS)
         next_run = time.time() + first_delay
         if resuming and not args.once:
             LOG.info("이전 백업이 중단된 기록이 있어 잠시 후 중단 지점부터 이어서 백업을 재개합니다.")
+        elif initial_run and first_delay > 0:
+            LOG.info("첫 설치 백업을 약 %.0f초 후 자동으로 시작합니다.", first_delay)
         elif first_delay > 0:
             start_kst = datetime.fromtimestamp(next_run, timezone(timedelta(hours=9))).strftime("%H:%M")
             LOG.info(

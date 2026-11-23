@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.12
+
+- Started the very first backup within 5–30 seconds after installation instead of waiting up to 30 minutes, while keeping the full 0–30 minute startup stagger for subsequent restarts after the initial backup succeeds.
+
 ## 0.3.11
 
 - Added resumable backup checkpointing (`checkpoint.json`) so stopping and restarting the app mid-backup skips already completed stages and verified local records, resumes right where it stopped without missing any data, and starts within seconds instead of waiting for a full startup stagger.
