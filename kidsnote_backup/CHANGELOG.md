@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.5
+
+- Added detailed per-collection backup logs (start/finish, fetched, saved, unchanged, skipped-older, elapsed time, and detected center count) and live phase/count progress in the web UI header.
+- Expanded center ID extraction to support dict enrollments, top-level center fields, and fallback recovery from report metadata, logging a warning if no center ID is found.
+- Preserved earliest report dates even when previously backed-up reports are skipped as unchanged on restart.
+
 ## 0.3.4
 
 - Limited center notice and menu backups to dates on or after the earliest report date of the enrolled children, skipping pre-enrollment records and stopping pagination early.

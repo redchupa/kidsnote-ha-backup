@@ -301,6 +301,40 @@ class BackupTest(unittest.TestCase):
         self.assertTrue((self.root / "centers/12/menus/2026-03-02_301/meta.json").is_file())
         self.assertFalse((self.root / "centers/12/menus/2026-03-01_302/meta.json").exists())
 
+    def test_center_id_recovery_from_dict_enrollment_and_report_metadata(self):
+        self.options.update({"include_albums": False})
+
+        def fake_get(url, *, headers, **kwargs):
+            path = urlsplit(url).path
+            if path == "/api/v1/me/children/":
+                return response({"children": [
+                    {"id": 1, "enrollment": {"center_id": 21}},
+                    {"id": 2},  # no enrollment on child; center comes from report detail
+                ]})
+            if path == "/api/v1_2/children/1/reports/":
+                return response({"results": [{"id": 10, "date_written": "2026-05-01"}]})
+            if path == "/api/v1_2/children/2/reports/":
+                return response({"results": [{"id": 20, "date_written": "2026-05-01"}]})
+            if path == "/api/v1_2/reports/10/":
+                return response({"content": "r1"})
+            if path == "/api/v1_2/reports/20/":
+                return response({"content": "r2", "center": {"id": 22}})
+            if path.endswith("/comments/"):
+                return response({"results": []})
+            if path in ("/api/v1/centers/21/notices/", "/api/v1/centers/22/notices/"):
+                return response({"results": [{"id": 1, "created": "2026-05-02T09:00:00+09:00", "content": "n"}]})
+            if path in ("/api/v1/centers/21/menu/", "/api/v1/centers/22/menu/"):
+                return response({"results": [{"id": 1, "date_menu": "2026-05-02", "lunch": "m"}]})
+            raise AssertionError(f"Unexpected route: {path}")
+
+        with patch.object(self.client.session, "get", side_effect=fake_get):
+            self.assertEqual(self.run_backup(), "success")
+
+        self.assertTrue((self.root / "centers/21/notices/1/meta.json").is_file())
+        self.assertTrue((self.root / "centers/21/menus/2026-05-02_1/meta.json").is_file())
+        self.assertTrue((self.root / "centers/22/notices/1/meta.json").is_file())
+        self.assertTrue((self.root / "centers/22/menus/2026-05-02_1/meta.json").is_file())
+
 
 if __name__ == "__main__":
     unittest.main()

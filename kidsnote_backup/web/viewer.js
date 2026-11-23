@@ -120,12 +120,24 @@ function loadCachedSettings() {
   } catch { /* ignore */ }
 }
 
-function setStatus(status, running = false) {
+function setStatus(status, running = false, progress = null) {
   const stamp = status?.last_success_at;
-  const state = running ? "백업 진행 중..." : {
-    failed: "최근 백업 실패", partial: "일부 백업 실패",
-    stopped: "백업 중지됨", deferred: "키즈노트 응답으로 백업 일시 중지",
-  }[status?.state];
+  let state;
+  if (running) {
+    const phaseLabel = labels[progress?.phase] || "";
+    const parts = [phaseLabel ? phaseLabel + " 백업 중" : "백업 진행 중"];
+    if (progress) {
+      if (progress.records) parts.push("저장 " + progress.records + "건");
+      if (progress.unchanged) parts.push("기존 " + progress.unchanged + "건");
+      if (progress.downloaded) parts.push("첨부 " + progress.downloaded + "개");
+    }
+    state = parts.join(" · ");
+  } else {
+    state = {
+      failed: "최근 백업 실패", partial: "일부 백업 실패",
+      stopped: "백업 중지됨", deferred: "키즈노트 응답으로 백업 일시 중지",
+    }[status?.state];
+  }
   const formatted = stamp ? new Intl.DateTimeFormat("ko", {
     dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Seoul",
   }).format(new Date(stamp)) : "";
@@ -155,7 +167,7 @@ function updateBackupButton(info) {
     btn.classList.remove("is-busy");
     btn.textContent = "지금 백업";
   }
-  setStatus(info.status, info.running);
+  setStatus(info.status, info.running, info.progress);
 }
 
 async function pollBackupStatus() {

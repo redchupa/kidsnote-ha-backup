@@ -139,10 +139,26 @@ class BackupController:
         self._lock = Lock()
         self.running = False
         self.next_run = 0.0
+        self.phase = ""
+        self.records = 0
+        self.unchanged = 0
+        self.downloaded = 0
 
     def set_running(self, value: bool):
         with self._lock:
             self.running = value
+            if value:
+                self.phase = ""
+                self.records = 0
+                self.unchanged = 0
+                self.downloaded = 0
+
+    def set_progress(self, phase: str, records: int, unchanged: int, downloaded: int):
+        with self._lock:
+            self.phase = phase
+            self.records = records
+            self.unchanged = unchanged
+            self.downloaded = downloaded
 
     def set_next_run(self, when: float):
         with self._lock:
@@ -154,6 +170,12 @@ class BackupController:
                 "running": self.running,
                 "cooldown_until": self.pacer.cooldown_until,
                 "next_run": self.next_run,
+                "progress": {
+                    "phase": self.phase,
+                    "records": self.records,
+                    "unchanged": self.unchanged,
+                    "downloaded": self.downloaded,
+                } if self.running else None,
             }
 
     def trigger(self):
@@ -182,9 +204,9 @@ def write_status(path, status):
     write_json(path, status)
 
 
-def run_once(client, root, options, stop):
+def run_once(client, root, options, stop, progress=None):
     started = timestamp()
-    archive = Archive(client, root, stop)
+    archive = Archive(client, root, stop, progress=progress)
     state = "failed"
     try:
         archive.check_stop()
@@ -285,7 +307,7 @@ def main(argv=None):
                 pacer.wait_until(target_time, wake=None if args.once else controller.wake)
                 controller.set_running(True)
                 try:
-                    state = run_once(client, args.archive, options, stop)
+                    state = run_once(client, args.archive, options, stop, progress=controller.set_progress)
                 finally:
                     controller.set_running(False)
                 if args.once:

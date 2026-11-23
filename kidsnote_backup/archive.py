@@ -63,13 +63,30 @@ def attachment_list(value):
     return value if isinstance(value, list) else [value]
 
 
+def _extract_center_id(obj):
+    if not isinstance(obj, dict):
+        return None
+    value = obj.get("center_id") or obj.get("center")
+    if isinstance(value, dict):
+        value = value.get("id")
+    return identifier(value) if value else None
+
+
 def center_ids(child):
-    for enrollment in child.get("enrollment") or []:
-        value = enrollment.get("center_id") or enrollment.get("center")
-        if isinstance(value, dict):
-            value = value.get("id")
-        if value:
-            yield identifier(value)
+    seen = set()
+    enrollments = child.get("enrollment")
+    if isinstance(enrollments, dict):
+        enrollments = [enrollments]
+    elif not isinstance(enrollments, list):
+        enrollments = []
+    extra = child.get("enrollments")
+    if isinstance(extra, list):
+        enrollments = [*enrollments, *extra]
+    for entry in (*enrollments, child):
+        cid = _extract_center_id(entry)
+        if cid and cid not in seen:
+            seen.add(cid)
+            yield cid
 
 
 def menu_key(item):
@@ -125,14 +142,23 @@ def already_backed_up(folder, item):
 
 
 class Archive:
-    def __init__(self, client, root: Path, stop):
+    def __init__(self, client, root: Path, stop, progress=None):
         self.client = client
         self.root = root
         self.stop = stop
+        self.progress = progress
         self.records = 0
         self.unchanged = 0
         self.downloaded = 0
         self.errors = 0
+        self._phase = ""
+        self._last_log = time.monotonic()
+
+    def _report_progress(self, phase=None):
+        if phase is not None:
+            self._phase = phase
+        if self.progress is not None:
+            self.progress(self._phase, self.records, self.unchanged, self.downloaded)
 
     def check_stop(self):
         if self.stop.is_set():
@@ -219,8 +245,14 @@ class Archive:
 
         write_json(folder / "meta.json", {**item, "_local_attachments": attachments})
         self.records += 1
-        if self.records % 100 == 0:
-            LOG.info("Progress: %d records saved, %d new attachments.", self.records, self.downloaded)
+        self._report_progress()
+        now = time.monotonic()
+        if self.records % 25 == 0 or now - self._last_log >= 30:
+            self._last_log = now
+            LOG.info(
+                "Progress [%s]: %d saved, %d unchanged, %d new attachments, %d errors.",
+                self._phase or kind, self.records, self.unchanged, self.downloaded, self.errors,
+            )
         return item
 
     def post_media(self, folder, item, prefix=""):
@@ -240,37 +272,81 @@ class Archive:
         message = str(exc) if isinstance(exc, BackupError) else type(exc).__name__
         LOG.warning("%s backup failed: %s", kind, message)
 
-    def collection(self, path, folder, kind, *, since: date | None = None, **params):
+    def collection(self, path, folder, kind, *, since: date | None = None, discovered_centers: set | None = None, **params):
         self.check_stop()
+        self._report_progress(kind)
         earliest: date | None = None
         older_streak = 0
+        seen = 0
+        saved_count = 0
+        unchanged_count = 0
+        skipped_old = 0
+        started = time.monotonic()
+        LOG.info("Starting %s backup%s.", kind, f" (from {since.isoformat()} onward)" if since else "")
         try:
             for item in self.client.items(path, **params):
                 self.check_stop()
+                seen += 1
                 item_date = record_date(item)
                 if since is not None and item_date is not None:
                     if item_date < since:
                         older_streak += 1
+                        skipped_old += 1
                         if older_streak >= OLDER_STOP_STREAK:
+                            LOG.info("Stopping %s pagination after %d consecutive items before %s.",
+                                     kind, older_streak, since.isoformat())
                             break
                         continue
                     older_streak = 0
                 if item_date is not None:
                     earliest = item_date if earliest is None else min(earliest, item_date)
+                if discovered_centers is not None:
+                    try:
+                        cid = _extract_center_id(item)
+                        if cid:
+                            discovered_centers.add(cid)
+                    except BackupError:
+                        pass
                 try:
                     key = menu_key(item) if kind == "menus" else identifier(item.get("id"))
                     target = folder / key
                     if kind != "menus" and already_backed_up(target, item):
                         self.unchanged += 1
+                        unchanged_count += 1
+                        self._report_progress()
+                        if item_date is None:
+                            try:
+                                cached = json.loads((target / "meta.json").read_text(encoding="utf-8"))
+                                cached_date = record_date(cached)
+                                if cached_date is not None:
+                                    earliest = cached_date if earliest is None else min(earliest, cached_date)
+                                if discovered_centers is not None:
+                                    cid = _extract_center_id(cached)
+                                    if cid:
+                                        discovered_centers.add(cid)
+                            except (OSError, ValueError, BackupError):
+                                pass
                         continue
                     saved = self.save(target, kind, item)
+                    saved_count += 1
                     saved_date = record_date(saved)
                     if saved_date is not None:
                         earliest = saved_date if earliest is None else min(earliest, saved_date)
+                    if discovered_centers is not None:
+                        try:
+                            cid = _extract_center_id(saved)
+                            if cid:
+                                discovered_centers.add(cid)
+                        except BackupError:
+                            pass
                 except (BackupError, OSError) as exc:
                     self.failed(kind, exc)
         except (BackupError, OSError) as exc:
             self.failed(kind, exc)
+        LOG.info(
+            "Finished %s backup in %.1fs: %d fetched, %d saved, %d unchanged, %d skipped (older).",
+            kind, time.monotonic() - started, seen, saved_count, unchanged_count, skipped_old,
+        )
         return earliest
 
     def run(self, children, options):
@@ -281,30 +357,52 @@ class Archive:
             root = self.root / "children" / child_id
             if isinstance(child.get("name"), str):
                 write_json(root / "profile.json", {"name": child["name"]})
+            report_centers: set[str] = set()
             earliest_report = self.collection(
                 f"{V12}/children/{child_id}/reports/", root / "reports", "reports",
                 alternate="reports", tz="Asia/Seoul", child=child_id,
+                discovered_centers=report_centers,
             )
             if options["include_albums"]:
-                self.collection(f"{V1}/children/{child_id}/albums/", root / "albums", "albums")
+                self.collection(
+                    f"{V1}/children/{child_id}/albums/", root / "albums", "albums",
+                    alternate="albums",
+                )
             if options["include_notices"] or options["include_menus"]:
                 try:
-                    for center_id in center_ids(child):
-                        previous = center_since.get(center_id)
-                        if earliest_report is not None:
-                            center_since[center_id] = (
-                                earliest_report if previous is None else min(previous, earliest_report)
-                            )
-                        else:
-                            center_since.setdefault(center_id, None)
+                    found_centers = list(center_ids(child))
                 except (AttributeError, BackupError, TypeError):
                     self.failed("centers", BackupError("Kidsnote returned invalid enrollment data."))
+                    found_centers = []
+                if not found_centers and report_centers:
+                    found_centers = sorted(report_centers)
+                    LOG.info("Child %s: recovered %d center ID(s) from report metadata.", child_id, len(found_centers))
+                if not found_centers:
+                    LOG.warning(
+                        "Child %s: no center ID found (child keys: %s). Notices and menus cannot be fetched.",
+                        child_id, ", ".join(sorted(str(k) for k in child.keys())),
+                    )
+                for center_id in found_centers:
+                    previous = center_since.get(center_id)
+                    if earliest_report is not None:
+                        center_since[center_id] = (
+                            earliest_report if previous is None else min(previous, earliest_report)
+                        )
+                    else:
+                        center_since.setdefault(center_id, None)
+        LOG.info("Detected %d center(s) for notices/menus backup.", len(center_since))
         for center_id in sorted(center_since):
             root = self.root / "centers" / center_id
             since = center_since[center_id]
             if since is not None:
                 LOG.info("Center %s: backing up notices and menus from %s onward.", center_id, since.isoformat())
             if options["include_notices"]:
-                self.collection(f"{V1}/centers/{center_id}/notices/", root / "notices", "notices", since=since)
+                self.collection(
+                    f"{V1}/centers/{center_id}/notices/", root / "notices", "notices",
+                    alternate="notices", since=since,
+                )
             if options["include_menus"]:
-                self.collection(f"{V1}/centers/{center_id}/menu/", root / "menus", "menus", since=since)
+                self.collection(
+                    f"{V1}/centers/{center_id}/menu/", root / "menus", "menus",
+                    alternate="menus", since=since,
+                )
