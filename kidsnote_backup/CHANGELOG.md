@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.9
+
+- Restored `interval_hours: 24` and the 7 `include_*: true` backup toggles to default `options` so they visibly show as enabled (ON) in the Home Assistant configuration UI, while keeping genuinely unused optional fields (`session_cookie`, `notify_ha`) folded under optional options.
+
 ## 0.4.8
 
 - Moved all optional scalar settings (`session_cookie`, `interval_hours`, `include_*`, `notify_ha`) into Home Assistant's native "Show unused optional configuration options" section, keeping default backup behavior (`interval_hours: 24`, all collections enabled) automatically applied when unset.
