@@ -30,6 +30,22 @@ MENU_PHOTOS = ("morning_img", "morning_snack_img", "lunch_img", "afternoon_snack
 EXTENSION = re.compile(r"\.[a-z0-9]{1,10}", re.ASCII)
 REFRESH_SECONDS = 7 * 24 * 60 * 60
 OLDER_STOP_STREAK = 10
+ESTIMATE_SECONDS_PER_ITEM = {
+    "reports": (6, 20),
+    "albums": (10, 40),
+    "notices": (2, 6),
+    "menus": (2, 5),
+}
+
+
+def format_duration(seconds: float) -> str:
+    minutes = int(round(max(0.0, seconds) / 60))
+    if minutes < 1:
+        return "1분 미만"
+    if minutes < 60:
+        return f"약 {minutes}분"
+    hours, rem = divmod(minutes, 60)
+    return f"약 {hours}시간 {rem}분" if rem else f"약 {hours}시간"
 
 
 @contextmanager
@@ -152,13 +168,22 @@ class Archive:
         self.downloaded = 0
         self.errors = 0
         self._phase = ""
+        self._phase_seen = 0
+        self._phase_total: int | None = None
+        self._phase_eta: int | None = None
         self._last_log = time.monotonic()
 
     def _report_progress(self, phase=None):
         if phase is not None:
             self._phase = phase
+            self._phase_seen = 0
+            self._phase_total = None
+            self._phase_eta = None
         if self.progress is not None:
-            self.progress(self._phase, self.records, self.unchanged, self.downloaded)
+            self.progress(
+                self._phase, self.records, self.unchanged, self.downloaded,
+                self._phase_seen, self._phase_total, self._phase_eta,
+            )
 
     def check_stop(self):
         if self.stop.is_set():
@@ -249,10 +274,19 @@ class Archive:
         now = time.monotonic()
         if self.records % 25 == 0 or now - self._last_log >= 30:
             self._last_log = now
-            LOG.info(
-                "Progress [%s]: %d saved, %d unchanged, %d new attachments, %d errors.",
-                self._phase or kind, self.records, self.unchanged, self.downloaded, self.errors,
-            )
+            if self._phase_total and self._phase_seen:
+                pct = min(100, int(self._phase_seen * 100 / self._phase_total))
+                eta_text = f", 예상 남은 시간 {format_duration(self._phase_eta)}" if self._phase_eta is not None else ""
+                LOG.info(
+                    "Progress [%s]: %d/%d (%d%%, %d saved, %d unchanged, %d new attachments%s).",
+                    self._phase or kind, self._phase_seen, self._phase_total, pct,
+                    self.records, self.unchanged, self.downloaded, eta_text,
+                )
+            else:
+                LOG.info(
+                    "Progress [%s]: %d saved, %d unchanged, %d new attachments, %d errors.",
+                    self._phase or kind, self.records, self.unchanged, self.downloaded, self.errors,
+                )
         return item
 
     def post_media(self, folder, item, prefix=""):
@@ -283,10 +317,30 @@ class Archive:
         skipped_old = 0
         started = time.monotonic()
         LOG.info("Starting %s backup%s.", kind, f" (from {since.isoformat()} onward)" if since else "")
+        announced_total = False
         try:
             for item in self.client.items(path, **params):
                 self.check_stop()
                 seen += 1
+                self._phase_seen = seen
+                if not announced_total:
+                    announced_total = True
+                    raw_total = getattr(self.client, "last_count", None)
+                    if type(raw_total) is int and raw_total > 0:
+                        self._phase_total = raw_total
+                        low_s, high_s = ESTIMATE_SECONDS_PER_ITEM.get(kind, (3, 10))
+                        low_str = format_duration(raw_total * low_s)
+                        high_str = format_duration(raw_total * high_s)
+                        estimate_range = low_str if low_str == high_str else f"{low_str} ~ {high_str}"
+                        LOG.info(
+                            "[%s] 총 %d건 확인됨. 첫 백업 시 사진·영상 수에 따라 %s 정도 소요될 수 있습니다. 완료될 때까지 앱을 중지하지 말아 주세요.",
+                            kind, raw_total, estimate_range,
+                        )
+                        self._report_progress()
+                if self._phase_total and seen >= 3:
+                    elapsed = time.monotonic() - started
+                    remaining_items = max(0, self._phase_total - seen)
+                    self._phase_eta = int(round((elapsed / seen) * remaining_items))
                 item_date = record_date(item)
                 if since is not None and item_date is not None:
                     if item_date < since:

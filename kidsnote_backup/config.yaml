@@ -1,6 +1,6 @@
 name: Kidsnote HA Backup
 description: Back up Kidsnote reports, comments and media to local storage.
-version: "0.3.7"
+version: "0.3.8"
 slug: kidsnote_backup
 url: https://github.com/redchupa/kidsnote-ha-backup
 arch:

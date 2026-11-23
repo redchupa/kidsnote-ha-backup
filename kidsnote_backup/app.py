@@ -143,6 +143,9 @@ class BackupController:
         self.records = 0
         self.unchanged = 0
         self.downloaded = 0
+        self.phase_seen = 0
+        self.phase_total: int | None = None
+        self.eta_seconds: int | None = None
 
     def set_running(self, value: bool):
         with self._lock:
@@ -152,13 +155,22 @@ class BackupController:
                 self.records = 0
                 self.unchanged = 0
                 self.downloaded = 0
+                self.phase_seen = 0
+                self.phase_total = None
+                self.eta_seconds = None
 
-    def set_progress(self, phase: str, records: int, unchanged: int, downloaded: int):
+    def set_progress(
+        self, phase: str, records: int, unchanged: int, downloaded: int,
+        phase_seen: int = 0, phase_total: int | None = None, eta_seconds: int | None = None,
+    ):
         with self._lock:
             self.phase = phase
             self.records = records
             self.unchanged = unchanged
             self.downloaded = downloaded
+            self.phase_seen = phase_seen
+            self.phase_total = phase_total
+            self.eta_seconds = eta_seconds
 
     def set_next_run(self, when: float):
         with self._lock:
@@ -175,6 +187,9 @@ class BackupController:
                     "records": self.records,
                     "unchanged": self.unchanged,
                     "downloaded": self.downloaded,
+                    "phase_seen": self.phase_seen,
+                    "phase_total": self.phase_total,
+                    "eta_seconds": self.eta_seconds,
                 } if self.running else None,
             }
 
@@ -219,6 +234,11 @@ def run_once(client, root, options, stop, progress=None):
         if not children:
             raise BackupError("Kidsnote returned no children for this account.")
         LOG.info("Starting backup for %d children.", len(children))
+        if not read_status(root / "status.json").get("last_success_at"):
+            LOG.info(
+                "첫 백업을 시작합니다. 키즈노트 서버 보호를 위해 요청 간격을 두고 천천히 내려받으므로, "
+                "알림장·앨범 사진이 많으면 수십 분~수 시간 걸릴 수 있습니다. 완료될 때까지 앱을 중지하지 말아 주세요."
+            )
         archive.run(children, options)
         state = "partial" if archive.errors else "success"
     except Stopping:

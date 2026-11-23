@@ -335,6 +335,34 @@ class BackupTest(unittest.TestCase):
         self.assertTrue((self.root / "centers/22/notices/1/meta.json").is_file())
         self.assertTrue((self.root / "centers/22/menus/2026-05-02_1/meta.json").is_file())
 
+    def test_first_backup_logs_estimated_time_from_count(self):
+        from archive import format_duration
+
+        self.assertEqual(format_duration(20), "1분 미만")
+        self.assertEqual(format_duration(600), "약 10분")
+        self.assertEqual(format_duration(5400), "약 1시간 30분")
+
+        self.options.update({"include_albums": False, "include_notices": False, "include_menus": False})
+
+        def fake_get(url, *, headers, **kwargs):
+            path = urlsplit(url).path
+            if path == "/api/v1/me/children/":
+                return response({"children": [{"id": 1}]})
+            if path == "/api/v1_2/children/1/reports/":
+                return response({"count": 120, "results": [{"id": 10, "date_written": "2026-05-01"}]})
+            if path == "/api/v1_2/reports/10/":
+                return response({"content": "r1"})
+            if path.endswith("/comments/"):
+                return response({"results": []})
+            raise AssertionError(f"Unexpected route: {path}")
+
+        with patch.object(self.client.session, "get", side_effect=fake_get), self.assertLogs(level=logging.INFO) as logs:
+            self.assertEqual(run_once(self.client, self.root, self.options, self.stop), "success")
+        joined = "\n".join(logs.output)
+        self.assertIn("첫 백업을 시작합니다", joined)
+        self.assertIn("[reports] 총 120건 확인됨", joined)
+        self.assertIn("정도 소요될 수 있습니다", joined)
+
 
 if __name__ == "__main__":
     unittest.main()

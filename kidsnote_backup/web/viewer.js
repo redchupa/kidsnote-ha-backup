@@ -122,15 +122,29 @@ function loadCachedSettings() {
   } catch { /* ignore */ }
 }
 
+function formatEta(seconds) {
+  if (typeof seconds !== "number" || !Number.isFinite(seconds)) return "";
+  const mins = Math.round(Math.max(0, seconds) / 60);
+  if (mins < 1) return "1분 미만 남음";
+  if (mins < 60) return "약 " + mins + "분 남음";
+  const hours = Math.floor(mins / 60);
+  const rem = mins % 60;
+  return rem ? "약 " + hours + "시간 " + rem + "분 남음" : "약 " + hours + "시간 남음";
+}
+
 function setStatus(status, running = false, progress = null) {
   const stamp = status?.last_success_at;
   let state;
   if (running) {
     const phaseLabel = labels[progress?.phase] || "";
-    const parts = [phaseLabel ? phaseLabel + " 백업 중" : "백업 진행 중"];
+    const countPart = progress?.phase_total
+      ? " (" + progress.phase_seen + "/" + progress.phase_total + ")"
+      : "";
+    const parts = [(phaseLabel ? phaseLabel + " 백업 중" : "백업 진행 중") + countPart];
     if (progress) {
+      const eta = formatEta(progress.eta_seconds);
+      if (eta) parts.push(eta);
       if (progress.records) parts.push("저장 " + progress.records + "건");
-      if (progress.unchanged) parts.push("기존 " + progress.unchanged + "건");
       if (progress.downloaded) parts.push("첨부 " + progress.downloaded + "개");
     }
     state = parts.join(" · ");

@@ -56,6 +56,7 @@ class KidsnoteClient:
         self.session.headers.update({"User-Agent": DEFAULT_USER_AGENT, "Accept-Language": "ko"})
         self.pacer = pacer if pacer is not None else RequestPacer()
         self.token = ""
+        self.last_count: int | None = None
 
     def __enter__(self):
         return self
@@ -119,11 +120,16 @@ class KidsnoteClient:
         url = initial
         seen_pages = set()
         seen_ids = set()
+        self.last_count = None
         while url:
             if url in seen_pages or len(seen_pages) >= 2000:
                 raise BackupError("Kidsnote pagination did not terminate.")
             seen_pages.add(url)
             payload = self.json(url)
+            if len(seen_pages) == 1:
+                count = payload.get("count")
+                if type(count) is int and count >= 0:
+                    self.last_count = count
             records = payload.get("results", payload.get(alternate))
             if not isinstance(records, list) or any(not isinstance(item, dict) for item in records):
                 raise BackupError("Kidsnote returned an unexpected list response.")

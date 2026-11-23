@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.8
+
+- Logged an initial backup notice and rough estimated duration range (from each collection's total `count`) plus live measured remaining time (ETA) in both the app logs and web UI header so users know how long the first backup will take.
+
 ## 0.3.7
 
 - Added the Kidsnote child ID lookup URL (`https://www.kidsnote.com/api/v1/me/children/`) and JSON example directly to the `child_ids` configuration description (Korean & English).
