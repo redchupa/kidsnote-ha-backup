@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.10
+
+- Fixed misleading progress counts like `25/1 (100%)` caused by Kidsnote endpoints whose `count` field is smaller than the actual number of records, and localized collection progress logs into clear Korean (`알림장`, `앨범`, `공지`, `식단`).
+
 ## 0.3.9
 
 - Displayed the scheduled KST start time for the initial backup stagger in both the app logs and the web UI status bar / toast.

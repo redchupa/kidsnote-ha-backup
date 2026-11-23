@@ -360,8 +360,14 @@ class BackupTest(unittest.TestCase):
             self.assertEqual(run_once(self.client, self.root, self.options, self.stop), "success")
         joined = "\n".join(logs.output)
         self.assertIn("첫 백업을 시작합니다", joined)
-        self.assertIn("[reports] 총 120건 확인됨", joined)
+        self.assertIn("[알림장] 총 120건 확인됨", joined)
         self.assertIn("정도 소요될 수 있습니다", joined)
+
+        # Bogus count smaller than page results (e.g. unread badge count) must be ignored
+        bogus = response({"count": 1, "results": [{"id": 1}, {"id": 2}]})
+        with patch.object(self.client.session, "get", return_value=bogus):
+            list(self.client.items("/api/v1_2/children/1/reports/"))
+        self.assertIsNone(self.client.last_count)
 
 
 if __name__ == "__main__":

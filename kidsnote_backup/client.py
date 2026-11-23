@@ -126,13 +126,15 @@ class KidsnoteClient:
                 raise BackupError("Kidsnote pagination did not terminate.")
             seen_pages.add(url)
             payload = self.json(url)
-            if len(seen_pages) == 1:
-                count = payload.get("count")
-                if type(count) is int and count >= 0:
-                    self.last_count = count
             records = payload.get("results", payload.get(alternate))
             if not isinstance(records, list) or any(not isinstance(item, dict) for item in records):
                 raise BackupError("Kidsnote returned an unexpected list response.")
+            if len(seen_pages) == 1:
+                count = payload.get("count")
+                has_next = bool(payload.get("next"))
+                if (type(count) is int and count >= len(records)
+                        and (not has_next or count > len(records))):
+                    self.last_count = count
             for item in records:
                 item_id = item.get("id")
                 if item_id is not None:

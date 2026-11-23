@@ -30,6 +30,12 @@ MENU_PHOTOS = ("morning_img", "morning_snack_img", "lunch_img", "afternoon_snack
 EXTENSION = re.compile(r"\.[a-z0-9]{1,10}", re.ASCII)
 REFRESH_SECONDS = 7 * 24 * 60 * 60
 OLDER_STOP_STREAK = 10
+KIND_LABELS = {
+    "reports": "알림장",
+    "albums": "앨범",
+    "notices": "공지",
+    "menus": "식단",
+}
 ESTIMATE_SECONDS_PER_ITEM = {
     "reports": (6, 20),
     "albums": (10, 40),
@@ -274,18 +280,20 @@ class Archive:
         now = time.monotonic()
         if self.records % 25 == 0 or now - self._last_log >= 30:
             self._last_log = now
-            if self._phase_total and self._phase_seen:
+            label = KIND_LABELS.get(self._phase or kind, self._phase or kind)
+            if self._phase_total and self._phase_seen and self._phase_seen <= self._phase_total:
                 pct = min(100, int(self._phase_seen * 100 / self._phase_total))
-                eta_text = f", 예상 남은 시간 {format_duration(self._phase_eta)}" if self._phase_eta is not None else ""
+                eta_text = f" · 예상 남은 시간 {format_duration(self._phase_eta)}" if self._phase_eta is not None else ""
                 LOG.info(
-                    "Progress [%s]: %d/%d (%d%%, %d saved, %d unchanged, %d new attachments%s).",
-                    self._phase or kind, self._phase_seen, self._phase_total, pct,
+                    "진행 중 [%s]: %d/%d (%d%% · 저장 %d건 · 기존 %d건 · 첨부 %d개%s)",
+                    label, self._phase_seen, self._phase_total, pct,
                     self.records, self.unchanged, self.downloaded, eta_text,
                 )
             else:
                 LOG.info(
-                    "Progress [%s]: %d saved, %d unchanged, %d new attachments, %d errors.",
-                    self._phase or kind, self.records, self.unchanged, self.downloaded, self.errors,
+                    "진행 중 [%s]: %d건 처리됨 (저장 %d건 · 기존 %d건 · 첨부 %d개 · 오류 %d건)",
+                    label, self._phase_seen or self.records,
+                    self.records, self.unchanged, self.downloaded, self.errors,
                 )
         return item
 
@@ -316,7 +324,8 @@ class Archive:
         unchanged_count = 0
         skipped_old = 0
         started = time.monotonic()
-        LOG.info("Starting %s backup%s.", kind, f" (from {since.isoformat()} onward)" if since else "")
+        label = KIND_LABELS.get(kind, kind)
+        LOG.info("[%s] 백업 시작%s", label, f" ({since.isoformat()} 이후)" if since else "")
         announced_total = False
         try:
             for item in self.client.items(path, **params):
@@ -333,10 +342,13 @@ class Archive:
                         high_str = format_duration(raw_total * high_s)
                         estimate_range = low_str if low_str == high_str else f"{low_str} ~ {high_str}"
                         LOG.info(
-                            "[%s] 총 %d건 확인됨. 첫 백업 시 사진·영상 수에 따라 %s 정도 소요될 수 있습니다. 완료될 때까지 앱을 중지하지 말아 주세요.",
-                            kind, raw_total, estimate_range,
+                            "[%s] 총 %d건 확인됨 (첫 백업 시 사진·영상 수에 따라 %s 정도 소요될 수 있습니다).",
+                            label, raw_total, estimate_range,
                         )
                         self._report_progress()
+                if self._phase_total is not None and seen > self._phase_total:
+                    self._phase_total = None
+                    self._phase_eta = None
                 if self._phase_total and seen >= 3:
                     elapsed = time.monotonic() - started
                     remaining_items = max(0, self._phase_total - seen)
@@ -398,8 +410,8 @@ class Archive:
         except (BackupError, OSError) as exc:
             self.failed(kind, exc)
         LOG.info(
-            "Finished %s backup in %.1fs: %d fetched, %d saved, %d unchanged, %d skipped (older).",
-            kind, time.monotonic() - started, seen, saved_count, unchanged_count, skipped_old,
+            "[%s] 백업 완료 (소요 %s · 조회 %d건 · 저장 %d건 · 기존 %d건 · 기준일 이전 스킵 %d건)",
+            label, format_duration(time.monotonic() - started), seen, saved_count, unchanged_count, skipped_old,
         )
         return earliest
 
