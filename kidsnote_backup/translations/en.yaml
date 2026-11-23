@@ -20,7 +20,10 @@ configuration:
       www.kidsnote.com and copy only the Value for sessionid. See the Documentation tab for the full steps.
   interval_hours:
     name: "[Optional] Backup interval (hours, default 24)"
-    description: Waits this long after each run, plus up to 30 minutes.
+    description: >-
+      How often to run automatic backups (1–168 hours, default 24). Adds a random 0–30 minute delay
+      after each interval to spread traffic to Kidsnote's servers (e.g., with 24 hours set, each run
+      happens every 24h to 24h 30m).
   include_albums:
     name: "[Optional] Back up albums"
   include_notices:

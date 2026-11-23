@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.7
+
+- Improved the `interval_hours` configuration description (Korean & English) to clearly explain why a random 0–30 minute spread is added after each backup interval.
+
 ## 0.4.6
 
 - Reordered `child_ids` ahead of `session_cookie` in the configuration schema so the optional session cookie field appears below child IDs.
