@@ -44,8 +44,10 @@ def retry_after_seconds(header: str | None, now: float) -> float:
 
 
 class RequestPacer:
-    def __init__(self, stop: Event | None = None):
+    def __init__(self, stop: Event | None = None, *, api_interval: float = API_INTERVAL, media_interval: float = MEDIA_INTERVAL):
         self.stop = stop if stop is not None else Event()
+        self.api_interval = api_interval
+        self.media_interval = media_interval
         self.cooldown_until = 0.0
         self._next_request = 0.0
 
@@ -71,8 +73,9 @@ class RequestPacer:
         self.wait_until(self.cooldown_until)
         if self.stop.wait(max(0, self._next_request - time.monotonic())):
             raise Stopping
-        interval = MEDIA_INTERVAL if media else API_INTERVAL
-        self._next_request = time.monotonic() + interval + random.uniform(0, 0.5)
+        interval = self.media_interval if media else self.api_interval
+        jitter = random.uniform(0, 0.5) if interval >= 1 else 0.0
+        self._next_request = time.monotonic() + interval + jitter
 
     def check_response(self, status: int, retry_after: str | None):
         if status not in (429, 503):

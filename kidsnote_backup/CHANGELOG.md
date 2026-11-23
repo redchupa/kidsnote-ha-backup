@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.13
+
+- Temporarily reduced request pacing intervals (`0.1s`) for faster end-to-end backup testing (while keeping HTTP 429/503 cooldown protection active).
+
 ## 0.3.12
 
 - Started the very first backup within 5–30 seconds after installation instead of waiting up to 30 minutes, while keeping the full 0–30 minute startup stagger for subsequent restarts after the initial backup succeeds.
