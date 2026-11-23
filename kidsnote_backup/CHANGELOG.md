@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.6
+
+- Reordered `child_ids` ahead of `session_cookie` in the configuration schema so the optional session cookie field appears below child IDs.
+
 ## 0.4.5
 
 - Moved `session_cookie` and `notify_ha` out of default `options` (kept in `schema` as optional) so Home Assistant neatly folds them into the native "Show unused optional configuration options" section while preserving existing user values.

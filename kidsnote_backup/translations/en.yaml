@@ -4,12 +4,6 @@ configuration:
     description: For standard accounts, enter only username and password — the session cookie is issued and renewed automatically. (For 2FA/social login, leave blank and enable 'Show unused optional configuration options' below to enter session_cookie.)
   password:
     name: "[Required] Kidsnote password"
-  session_cookie:
-    name: "[Optional] Kidsnote session cookie (2FA / social login only)"
-    description: >-
-      Leave blank if username and password sign-in works (auto-renewed). Only for two-step verification or social login:
-      sign in at https://www.kidsnote.com/kr/login on a computer, then open F12 → Application → Cookies →
-      www.kidsnote.com and copy only the Value for sessionid. See the Documentation tab for the full steps.
   child_ids:
     name: "[Optional] Child IDs (leave empty for all)"
     description: >-
@@ -18,6 +12,12 @@ configuration:
       Example: { "results": [ { "id": 1234567, "name": "Sample Child", "picture": { "id": 9876543 }, "parent": { "id": 2345678 }, "enrollment": [{ "id": 3456789, "center_id": 4567890 }] } ] }
       → Enter only the id at the same level as the child's name (e.g. 1234567) and press Enter
       (do not use ids inside picture, parent, or enrollment; in YAML mode use child_ids: [1234567]).
+  session_cookie:
+    name: "[Optional] Kidsnote session cookie (2FA / social login only)"
+    description: >-
+      Leave blank if username and password sign-in works (auto-renewed). Only for two-step verification or social login:
+      sign in at https://www.kidsnote.com/kr/login on a computer, then open F12 → Application → Cookies →
+      www.kidsnote.com and copy only the Value for sessionid. See the Documentation tab for the full steps.
   interval_hours:
     name: "[Optional] Backup interval (hours, default 24)"
     description: Waits this long after each run, plus up to 30 minutes.
