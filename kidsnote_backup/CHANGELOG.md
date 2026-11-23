@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.5
+
+- Moved `session_cookie` and `notify_ha` out of default `options` (kept in `schema` as optional) so Home Assistant neatly folds them into the native "Show unused optional configuration options" section while preserving existing user values.
+
 ## 0.4.4
 
 - Added `[필수]` / `[선택]` (`[Required]` / `[Optional]`) prefixes to all configuration option labels so users can tell required login fields apart from optional settings at a glance.

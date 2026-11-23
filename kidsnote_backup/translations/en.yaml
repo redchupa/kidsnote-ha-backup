@@ -1,7 +1,7 @@
 configuration:
   username:
     name: "[Required] Kidsnote username"
-    description: For standard accounts, enter only username and password — the session cookie is issued and renewed automatically. (Leave blank if using 2FA/social login with session_cookie below.)
+    description: For standard accounts, enter only username and password — the session cookie is issued and renewed automatically. (For 2FA/social login, leave blank and enable 'Show unused optional configuration options' below to enter session_cookie.)
   password:
     name: "[Required] Kidsnote password"
   session_cookie:
