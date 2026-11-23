@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.8
+
+- Moved all optional scalar settings (`session_cookie`, `interval_hours`, `include_*`, `notify_ha`) into Home Assistant's native "Show unused optional configuration options" section, keeping default backup behavior (`interval_hours: 24`, all collections enabled) automatically applied when unset.
+
 ## 0.4.7
 
 - Improved the `interval_hours` configuration description (Korean & English) to clearly explain why a random 0–30 minute spread is added after each backup interval.

@@ -53,13 +53,11 @@ def read_options(path: Path):
         if value is not None and not isinstance(value, str):
             raise BackupError(f"{key} must be a string.")
         options[key] = value or ""
-    for key in ("include_albums", "include_notices", "include_menus"):
+    for key in (
+        "include_albums", "include_notices", "include_menus",
+        "include_schedules", "include_medications", "include_return_homes", "include_temperatures",
+    ):
         value = raw.get(key, True)
-        if type(value) is not bool:
-            raise BackupError(f"{key} must be true or false.")
-        options[key] = value
-    for key in ("include_schedules", "include_medications", "include_return_homes", "include_temperatures"):
-        value = raw.get(key, False)
         if type(value) is not bool:
             raise BackupError(f"{key} must be true or false.")
         options[key] = value

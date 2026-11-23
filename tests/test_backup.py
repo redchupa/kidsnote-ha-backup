@@ -99,7 +99,10 @@ class BackupTest(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.options_path = self.root / "fake-options.json"
-        self.options_path.write_text("{}", encoding="utf-8")
+        self.options_path.write_text(json.dumps({
+            "include_schedules": False, "include_medications": False,
+            "include_return_homes": False, "include_temperatures": False,
+        }), encoding="utf-8")
         self.options = read_options(self.options_path)
         self.client = KidsnoteClient()
         self.addCleanup(self.client.session.close)
@@ -222,6 +225,13 @@ class BackupTest(unittest.TestCase):
         self.assertEqual(query, {"page_size": ["1"], "page": ["2"]})
 
     def test_configuration_validation(self):
+        self.options_path.write_text("{}", encoding="utf-8")
+        defaults = read_options(self.options_path)
+        self.assertEqual(defaults["interval_hours"], 24)
+        for key in ("include_albums", "include_notices", "include_menus",
+                    "include_schedules", "include_medications", "include_return_homes", "include_temperatures"):
+            self.assertTrue(defaults[key])
+        self.assertFalse(defaults["notify_ha"])
         self.options_path.write_text('{"interval_hours": 0}', encoding="utf-8")
         with self.assertRaisesRegex(BackupError, "interval_hours"):
             read_options(self.options_path)
