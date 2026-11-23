@@ -564,22 +564,25 @@ def create_app(root, proxy="172.30.32.2", backup_controller=None):
     @app.get("/api/calendar")
     def calendar_month():
         today = supplies.today_kst()
+        today_iso = today.isoformat()
         month = request.args.get("month") or today.strftime("%Y-%m")
         owner = request.args.get("owner", "")
         if not MONTH.fullmatch(month) or (owner and not ID.fullmatch(owner)):
             abort(400)
-        board_data = serialize_board(root)
         month_start = f"{month}-01"
         month_end = f"{month}-31"
-        events = [
-            entry for entry in board_data["events"]
-            if entry["start"] <= month_end and entry["end"] >= month_start
-            and (
-                not owner
-                or not entry.get("page_id", "").startswith("reports/")
-                or entry.get("page_id", "").split("/")[1:2] == [owner]
-            )
-        ]
+        events = []
+        if month_end >= today_iso:
+            board_data = serialize_board(root)
+            events = [
+                entry for entry in board_data["events"]
+                if entry["start"] <= month_end and entry["end"] >= month_start
+                and (
+                    not owner
+                    or not entry.get("page_id", "").startswith("reports/")
+                    or entry.get("page_id", "").split("/")[1:2] == [owner]
+                )
+            ]
         child_names = {}
         child_ids = set()
         for kind in ("reports", "albums"):
@@ -613,7 +616,7 @@ def create_app(root, proxy="172.30.32.2", backup_controller=None):
                 })
         items.sort(key=lambda entry: (entry["date"], entry["kind"], entry["key"]), reverse=True)
         return {
-            "today": board_data["today"],
+            "today": today_iso,
             "month": month,
             "owners": [{"id": cid, "name": child_names[cid]} for cid in sorted(child_ids)],
             "events": events,

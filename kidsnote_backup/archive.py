@@ -182,14 +182,15 @@ def record_date(item) -> date | None:
 
 def has_complete_local_record(folder: Path, kind: str) -> bool:
     meta = folder / "meta.json"
+    no_note = kind in ("menus", "temperatures")
     try:
-        if not meta.is_file() or (kind != "menus" and not (folder / "note.txt").is_file()):
+        if not meta.is_file() or (not no_note and not (folder / "note.txt").is_file()):
             return False
         cached = json.loads(meta.read_text(encoding="utf-8"))
         if not isinstance(cached, dict):
             return False
         records_to_check = [cached]
-        if kind != "menus":
+        if not no_note:
             if "_comments" not in cached:
                 return False
             records_to_check.extend(c for c in (cached["_comments"] or []) if isinstance(c, dict))
@@ -392,7 +393,11 @@ class Archive:
                     for comment in comments
                 ]
             item = {**item, "_comments": comments}
-            body = first_value(item, ("content", "body", "report", "symptom", "method"))
+            body = next(
+                (item[k] for k in ("content", "body", "report", "symptom", "method")
+                 if isinstance(item.get(k), str) and item[k]),
+                None,
+            )
             heading = item.get("title")
             lines = [value for value in (heading, body) if isinstance(value, str) and value]
             with atomic_file(folder / "note.txt") as handle:
@@ -580,7 +585,10 @@ class Archive:
         if end_month > 12:
             end_year += 1
             end_month -= 12
-        months = month_range(start, date(end_year, end_month, 1))
+        end_date = date(end_year, end_month, 1)
+        months = month_range(min(start, end_date), end_date)
+        if not months:
+            months = [today.strftime("%Y-%m")]
         started = time.monotonic()
         errors_before = self.errors
         saved_count = 0
@@ -645,8 +653,10 @@ class Archive:
             return
         self._report_progress("temperatures")
         today = datetime.now(KST).date()
-        start = since or today
+        start = min(since, today) if since is not None else today
         months = month_range(start, today)
+        if not months:
+            months = [today.strftime("%Y-%m")]
         started = time.monotonic()
         errors_before = self.errors
         saved_count = 0

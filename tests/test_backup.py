@@ -490,12 +490,15 @@ class BackupTest(unittest.TestCase):
 
         # Medications: 701 saved (with attachment), 700 before 2026-11-01 skipped
         self.assertTrue((self.root / "children/1/medications/701/meta.json").is_file())
+        self.assertEqual((self.root / "children/1/medications/701/note.txt").read_text(encoding="utf-8"), "감기")
         self.assertFalse((self.root / "children/1/medications/700/meta.json").exists())
         # Return-homes: 801 saved, 800 before 2026-11-01 skipped
         self.assertTrue((self.root / "children/1/return_homes/801/meta.json").is_file())
         self.assertFalse((self.root / "children/1/return_homes/800/meta.json").exists())
-        # Temperatures: 2026-11 saved
+        # Temperatures: 2026-11 saved and recognized as complete for checkpoint resume
+        from archive import has_complete_local_record
         self.assertTrue((self.root / "children/1/temperatures/2026-11/meta.json").is_file())
+        self.assertTrue(has_complete_local_record(self.root / "children/1/temperatures/2026-11", "temperatures"))
         # Schedules: 901 and null-id birthday saved, 900 before 2026-11-01 skipped
         sched_dirs = sorted(p.name for p in (self.root / "centers/12/schedules").iterdir())
         self.assertEqual(len(sched_dirs), 2)

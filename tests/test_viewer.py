@@ -295,3 +295,10 @@ class ViewerTest(unittest.TestCase):
             cal = self.get("/api/calendar?month=2026-11").json
         cal_kinds = {r["kind"] for r in cal["records"]}
         self.assertTrue({"reports", "schedules", "medications", "return_homes"}.issubset(cal_kinds))
+
+        # Past months skip make_board() document scanning completely
+        with (patch("viewer.supplies.today_kst", return_value=date(2026, 11, 19)),
+              patch("viewer.make_board") as board_mock):
+            past = self.get("/api/calendar?month=2026-10").json
+        board_mock.assert_not_called()
+        self.assertEqual(past["events"], [])

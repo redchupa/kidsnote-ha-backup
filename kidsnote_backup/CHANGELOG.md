@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.3
+
+- Fixed an edge-case `IndexError` in monthly schedule/temperature backups if the earliest report date is ahead of the local clock.
+- Fixed checkpoint completeness verification for `temperatures` records (which do not use `note.txt` or `_comments`).
+- Fixed `note.txt` text extraction for medication requests so `symptom` is written even when `report` is a nested teacher-report object.
+- Skipped unnecessary 60-day document scanning (`make_board`) when browsing past months in the calendar tab.
+
 ## 0.4.2
 
 - Clarified in the app configuration labels that `session_cookie` (2FA/social login only) and `child_ids` are optional, and noted automatic session cookie issuance/renewal for standard username/password logins.
