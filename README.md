@@ -1,6 +1,6 @@
 # Kidsnote HA Backup
 
-키즈노트의 **알림장·앨범·공지·식단·일정표·투약의뢰서·귀가동의서·체온기록**과 첨부 파일(사진·영상·PDF·HWP·DOCX 등)을 **Home Assistant OS** 기기의 로컬 저장소로 자동 백업하고, Home Assistant 안의 웹 UI에서 바로 열람·검색할 수 있는 커뮤니티 앱입니다.
+키즈노트의 **알림장·앨범·공지·식단·일정표·투약의뢰서·귀가동의서·체온기록**과 사진·영상·첨부파일을 **Home Assistant** 기기에 자동으로 백업하고, Home Assistant 화면 안에서 바로 찾아볼 수 있는 앱입니다.
 
 [![Home Assistant에 저장소 추가](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Fredchupa%2Fkidsnote-ha-backup)
 
@@ -12,54 +12,54 @@
 
 ## 주요 기능
 
-* **8종 통합 로컬 백업**: 알림장(생활기록·댓글·첨부 포함), 앨범, 공지사항, 식단, 일정표, 투약의뢰서, 귀가동의서, 체온기록을 기기에 안전하게 보관합니다.
-* **첫 알림장 기준 스마트 수집**: 공지·식단·일정표·투약·귀가·체온은 자녀의 **첫 알림장 날짜 이후** 기록만 선별해 불필요한 과거 기관 데이터를 줄입니다.
-* **7종 테마 & ⚙ 보관함 설정**: `시스템 자동 · 화이트 · 블랙 · 블루 · 아이보리 · 귀여운 컨셉 · 미래지향적` 테마, **보관함 이름 변경**, **기본 시작 화면**을 설정할 수 있으며 모든 기기에 자동 동기화됩니다.
-* **달력 통합 뷰 & 준비물 체크리스트**: 달력에서 날짜를 누르면 해당 날짜의 일정과 알림장·앨범·식단·공지·투약·귀가 기록을 한눈에 볼 수 있고, 알림장·공지·첨부문서에서 추출한 준비물에 **챙김 완료 체크**를 할 수 있습니다.
-* **편리한 열람·검색**: 사진 인앱 라이트박스(키보드·스와이프), 게시물 첨부 전체 **ZIP 일괄 다운로드**, **🎬 동영상만 보기** 필터, 첨부 문서(PDF·HWP·HWPX·PPTX·DOCX) 본문 통합 검색, 인쇄/PDF 저장을 지원합니다.
-* **자동 세션 갱신 & 중단 이어받기**: 일반 계정은 세션 쿠키가 자동 발급·갱신되며, 백업 도중 앱이 중단되어도 체크포인트(`checkpoint.json`)를 통해 누락 없이 중단 지점부터 이어받습니다.
-* **수동 백업 & Home Assistant 알림 연동**: 초기 백업 완료 후 웹 UI 상단의 **지금 백업** 버튼으로 즉시 동기화할 수 있으며, 선택 옵션(`notify_ha`)을 켜면 새 기록 백업 시 HA 이벤트(`kidsnote_backup_completed`)를 전송합니다.
+* **한 번에 모두 백업**: 알림장(생활기록·댓글·사진·영상), 앨범, 공지, 식단, 일정표, 투약의뢰서, 귀가동의서, 체온기록을 기기에 안전하게 보관합니다.
+* **우리 아이 기록부터 깔끔하게**: 공지·식단 등은 아이의 **첫 알림장 날짜 이후** 기록만 골라서 가져옵니다.
+* **7가지 테마 & 보관함 이름 변경**: ⚙ 설정에서 `화이트 · 블랙 · 블루 · 아이보리 · 귀여운 컨셉 · 미래지향적` 등 원하는 디자인과 보관함 이름(예: *우리 아이 성장일기*)을 바꿀 수 있습니다.
+* **달력에서 하루 기록 한눈에 보기**: 달력 날짜를 누르면 그날의 일정과 알림장·앨범·식단·공지·투약·귀가 기록을 한꺼번에 볼 수 있습니다.
+* **준비물 체크리스트**: 알림장·공지·가정통신문에서 준비물 요청만 모아 보여주고, 챙긴 항목은 체크해 둘 수 있습니다.
+* **편한 사진·동영상·문서 보기**: 사진 크게 보기(좌우 넘기기), 게시물 첨부 **한 번에 ZIP 다운로드**, **🎬 동영상만 보기**, 가정통신문(PDF·한글·워드) 안의 글자 검색, 인쇄/PDF 저장을 지원합니다.
+* **중단돼도 이어서 백업**: 백업 도중 앱을 끄거나 재부팅돼도 멈췄던 곳부터 누락 없이 이어서 받습니다.
 
 ## 설치 및 사용 방법
 
-### 1. 저장소 추가 및 앱 설치
+### 1. 앱 설치
 1. 위 **Home Assistant에 저장소 추가** 버튼을 누르거나, Home Assistant의 **설정 → 앱 → 앱 설치 → ⋮ → 저장소**에서 `https://github.com/redchupa/kidsnote-ha-backup`을 추가합니다.
-2. **Kidsnote HA Backup**을 설치합니다. (지원 아키텍처: `amd64`, `aarch64`)
+2. **Kidsnote HA Backup**을 설치합니다.
 
-> 이미 예전 이름(`Kidsnote Local Backup`)으로 설치해 사용 중이라면, 기존 저장소를 그대로 두고 업데이트하세요. 새 저장소로 재설치하면 앱 ID가 달라집니다.
+> 이미 예전 이름(`Kidsnote Local Backup`)으로 설치해 사용 중이라면, 기존 저장소를 그대로 두고 업데이트하세요.
 
-### 2. 구성 설정 (필수 항목만 입력하면 바로 시작!)
-앱의 **구성** 탭에서 아래 항목을 설정한 뒤 **저장**합니다.
+### 2. 로그인 설정
+앱의 **구성** 탭에서 **키즈노트 아이디**와 **비밀번호**만 입력하고 **저장**하세요.
 
-* **`[필수]` 키즈노트 아이디 / 비밀번호**: 일반 키즈노트 계정은 아이디와 비밀번호만 입력하면 세션 쿠키가 **자동으로 발급·갱신**됩니다.
-* **`[선택]` 백업할 자녀 ID**: 비워두면 계정에 연결된 **모든 자녀**를 백업합니다. 특정 자녀만 선택하려면 PC 브라우저에서 키즈노트에 로그인한 뒤 새 탭에서 `https://www.kidsnote.com/api/v1/me/children/`을 열어 자녀 이름(`name`)과 같은 깊이의 `id` 숫자만 입력하세요.
-* **2단계 인증 / 소셜 로그인 계정**: 아이디·비밀번호 칸을 비워두고, 구성 화면 하단의 **사용하지 않는 선택적 구성 옵션 표시**를 켠 뒤 `session_cookie`를 입력합니다. 자세한 쿠키 복사 방법은 [설치 및 사용 안내](kidsnote_backup/DOCS.md)를 참고하세요.
+* **모든 자녀를 백업하려면**: 다른 항목은 건드리지 않아도 됩니다.
+* **특정 자녀만 백업하려면**: PC 브라우저에서 키즈노트에 로그인한 뒤 새 탭에서 `https://www.kidsnote.com/api/v1/me/children/`을 열어 자녀 이름 옆의 `id` 숫자만 **백업할 자녀 ID**에 입력하세요.
+* **2단계 인증이나 카카오·네이버 로그인을 쓰신다면**: 아이디·비밀번호는 비워두고, 구성 화면 아래의 **사용하지 않는 선택적 구성 옵션 표시**를 켠 뒤 안내에 따라 로그인 쿠키를 입력하세요. ([자세한 방법 보기](kidsnote_backup/DOCS.md))
 
 ### 3. 앱 시작 및 보관함 열기
-1. 앱을 시작하면 **첫 설치 시 5~30초 이내**에 첫 백업이 자동으로 시작됩니다.
-2. 진행 상황은 **로그** 탭이나 **웹 UI 열기** 상단 상태바에서 실시간으로 확인할 수 있습니다.
-3. 첫 백업이 끝나면 이후 기본 **24시간(+0~30분 무작위 분산)** 간격으로 자동 반복되며, 웹 UI 상단의 **지금 백업** 버튼도 활성화됩니다.
+1. 앱을 시작하면 **30초 이내**에 첫 백업이 자동으로 시작됩니다.
+2. 진행 상황은 앱의 **웹 UI 열기** 상단이나 **로그** 탭에서 확인할 수 있습니다.
+3. 첫 백업이 끝나면 이후 하루에 한 번(약 24시간 간격) 자동으로 새 기록을 가져오며, 원할 때 **지금 백업** 버튼으로 바로 실행할 수도 있습니다.
 
 ## 자주 묻는 질문
 
 * **Q. 첫 백업은 얼마나 걸리나요?**
-  * 키즈노트 서버 보호를 위해 요청 간격(API 1초 · 사진/영상 2초)을 두고 천천히 내려받습니다. 1~2년치 기록과 사진이 많다면 **약 2~5시간 이상** 걸릴 수 있으니 완료될 때까지 기다려 주세요. (완료 후 정기 백업은 새 기록만 받아 보통 1~3분 이내에 끝납니다.)
-* **Q. 백업 중에 알림장만 보이고 앨범·공지·식단이 아직 안 떠요.**
-  * 백업은 `알림장 → 앨범 → 투약·귀가·체온 → 공지 → 식단 → 일정표` 순으로 차례대로 진행됩니다. 웹 UI 상단 상태바나 **로그** 탭에서 현재 진행 중인 단계를 확인하실 수 있습니다.
-* **Q. 첫 백업 도중에 앱을 중지하거나 HA가 재부팅되면 처음부터 다시 받나요?**
-  * 아닙니다. 이미 저장된 단계와 기록을 체크포인트로 기억해 두므로, 다시 시작하면 약 5초 후 중단된 지점부터 누락 없이 이어받습니다.
+  * 키즈노트에 무리가 가지 않도록 천천히 내려받기 때문에, 1~2년치 사진과 기록이 많으면 **2~5시간 이상** 걸릴 수 있습니다. 첫 백업만 끝나면 이후에는 새 글만 받아 보통 1~3분 만에 끝납니다.
+* **Q. 백업 중인데 알림장만 보이고 앨범·공지·식단이 아직 안 떠요.**
+  * `알림장 → 앨범 → 투약·귀가·체온 → 공지 → 식단 → 일정표` 순서대로 차근차근 받습니다. 웹 UI 상단이나 **로그** 탭에서 지금 어느 단계를 받고 있는지 확인하실 수 있습니다.
+* **Q. 첫 백업 중에 앱을 끄거나 재부팅하면 처음부터 다시 받나요?**
+  * 아니요! 이미 받은 기록은 그대로 유지되고, 다시 켜면 멈췄던 곳부터 자동으로 이어서 받습니다.
 * **Q. 일정표나 체온기록 탭이 비어 있어요.**
-  * 이용 중인 어린이집·유치원에서 해당 메뉴를 사용하지 않거나 등록된 기록이 없는 경우 비어 있으며, 정상 동작입니다.
+  * 다니는 어린이집·유치원에서 해당 메뉴를 사용하지 않거나 등록된 기록이 없을 때는 비어 있는 것이 정상입니다.
 
-더 자세한 2단계 인증 설정, 백업 파일 저장 경로 및 복사 방법은 [설치 및 사용 안내](kidsnote_backup/DOCS.md)를 참고하세요. 이 앱은 Home Assistant 앱 스토어를 사용하는 Home Assistant OS용입니다.
+자세한 2단계 인증 방법과 백업 파일 복사 방법은 [사용 안내](kidsnote_backup/DOCS.md)를 참고하세요.
 
 ## English
 
-A community app for Home Assistant OS (`amd64` and `arm64`) that backs up Kidsnote **reports, comments, media, albums, notices, menus, schedules, medication requests, return-home consents, and temperature logs** to local storage and provides a built-in web archive viewer via Ingress.
+A community app for Home Assistant OS (`amd64` and `arm64`) that backs up Kidsnote reports, albums, notices, menus, schedules, medication requests, return-home consents, and temperature logs to local storage, with a built-in archive viewer.
 
-* **Features**: 7 customizable themes & archive title settings (`⚙`), integrated daily calendar view, interactive supply checklist, photo lightbox, bulk ZIP attachment download, video-only filter, attached document (PDF/HWP/HWPX/PPTX/DOCX) search, resumable checkpointing after interruptions, manual backup trigger, and optional Home Assistant `kidsnote_backup_completed` event notifications.
-* **Quick start**: Add this repository with the button above, install **Kidsnote HA Backup**, enter your Kidsnote username and password in **Configuration** (session cookies are issued and renewed automatically; for 2FA/social accounts, enable *Show unused optional configuration options* to enter `session_cookie`), and start the app.
-* If you installed `Kidsnote Local Backup` before the rename, update from your existing repository to preserve your archive. See [setup and storage details](kidsnote_backup/DOCS.md#english).
+* Add this repository with the button above, install **Kidsnote HA Backup**, enter your Kidsnote username and password in **Configuration**, and start the app.
+* Includes 7 themes, custom archive title, integrated calendar, supply checklist, photo viewer, bulk ZIP download, video filter, document search, and automatic resume if interrupted.
+* If you installed `Kidsnote Local Backup` before the rename, update from your existing repository to keep your archive. See [setup details](kidsnote_backup/DOCS.md#english).
 
 ## 후원
 
