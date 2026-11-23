@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.7
+
+- Added the Kidsnote child ID lookup URL (`https://www.kidsnote.com/api/v1/me/children/`) and JSON example directly to the `child_ids` configuration description (Korean & English).
+
 ## 0.3.6
 
 - Kept the manual "지금 백업" button inactive until the first backup completes, and showed an immediate status toast when clicked while a backup is in progress or waiting for the initial run.

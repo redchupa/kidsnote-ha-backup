@@ -12,8 +12,11 @@ configuration:
   child_ids:
     name: Child IDs (numbers)
     description: >-
-      Type an ID such as 1234567 and press Enter to add it to the list. Add one per child.
-      In YAML mode, use brackets, as in child_ids: [1234567]. Leave empty to back up all linked children.
+      Leave empty to back up all linked children. To choose specific children, sign in to Kidsnote in a PC browser
+      and open https://www.kidsnote.com/api/v1/me/children/ in a new tab.
+      Example: { "results": [ { "id": 1234567, "name": "Sample Child", "picture": { "id": 9876543 }, "parent": { "id": 2345678 }, "enrollment": [{ "id": 3456789, "center_id": 4567890 }] } ] }
+      → Enter only the id at the same level as the child's name (e.g. 1234567) and press Enter
+      (do not use ids inside picture, parent, or enrollment; in YAML mode use child_ids: [1234567]).
   interval_hours:
     name: Backup interval (hours)
     description: Waits this long after each run, plus up to 30 minutes.
