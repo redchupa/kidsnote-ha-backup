@@ -29,6 +29,7 @@ URL_KEYS = ("original", "url", "src", "high", "high_resize", "large_resize")
 MENU_PHOTOS = ("morning_img", "morning_snack_img", "lunch_img", "afternoon_snack_img", "dinner_img")
 EXTENSION = re.compile(r"\.[a-z0-9]{1,10}", re.ASCII)
 REFRESH_SECONDS = 7 * 24 * 60 * 60
+CHECKPOINT_TTL_SECONDS = 48 * 60 * 60
 OLDER_STOP_STREAK = 10
 KIND_LABELS = {
     "reports": "알림장",
@@ -130,6 +131,69 @@ def record_date(item) -> date | None:
     return None
 
 
+def has_complete_local_record(folder: Path, kind: str) -> bool:
+    meta = folder / "meta.json"
+    try:
+        if not meta.is_file() or (kind != "menus" and not (folder / "note.txt").is_file()):
+            return False
+        cached = json.loads(meta.read_text(encoding="utf-8"))
+        if not isinstance(cached, dict):
+            return False
+        records_to_check = [cached]
+        if kind != "menus":
+            if "_comments" not in cached:
+                return False
+            records_to_check.extend(c for c in (cached["_comments"] or []) if isinstance(c, dict))
+        for record in records_to_check:
+            assets = record.get("_local_attachments")
+            if not isinstance(assets, list):
+                return False
+            for asset in assets:
+                filename = asset["file"]
+                target = folder / filename
+                if Path(filename).name != filename or not target.is_file() or target.stat().st_size == 0:
+                    return False
+    except (AttributeError, KeyError, OSError, TypeError, ValueError):
+        return False
+    return True
+
+
+def load_checkpoint(path: Path) -> dict:
+    try:
+        if not path.is_file():
+            return {}
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            return {}
+        updated = data.get("updated_at", 0)
+        if type(updated) not in (int, float) or time.time() - updated > CHECKPOINT_TTL_SECONDS:
+            return {}
+        return {
+            "completed_collections": set(
+                x for x in data.get("completed_collections", []) if isinstance(x, str)
+            ),
+            "saved_keys": set(
+                x for x in data.get("saved_keys", []) if isinstance(x, str)
+            ),
+            "center_since": {
+                k: v for k, v in (data.get("center_since") or {}).items()
+                if isinstance(k, str) and (v is None or isinstance(v, str))
+            },
+        }
+    except (OSError, ValueError):
+        return {}
+
+
+def save_checkpoint(path: Path, state: dict):
+    payload = {
+        "updated_at": time.time(),
+        "completed_collections": sorted(state["completed_collections"]),
+        "saved_keys": sorted(state["saved_keys"]),
+        "center_since": state["center_since"],
+    }
+    write_json(path, payload)
+
+
 def already_backed_up(folder, item):
     modified = item.get("modified")
     comment_count = item.get("num_comments")
@@ -178,6 +242,14 @@ class Archive:
         self._phase_total: int | None = None
         self._phase_eta: int | None = None
         self._last_log = time.monotonic()
+        self._checkpoint_path = self.root / "checkpoint.json"
+        self._checkpoint = {"completed_collections": set(), "saved_keys": set(), "center_since": {}}
+
+    def _flush_checkpoint(self):
+        try:
+            save_checkpoint(self._checkpoint_path, self._checkpoint)
+        except OSError:
+            pass
 
     def _report_progress(self, phase=None):
         if phase is not None:
@@ -314,8 +386,15 @@ class Archive:
         message = str(exc) if isinstance(exc, BackupError) else type(exc).__name__
         LOG.warning("%s backup failed: %s", kind, message)
 
-    def collection(self, path, folder, kind, *, since: date | None = None, discovered_centers: set | None = None, **params):
+    def collection(
+        self, path, folder, kind, *, since: date | None = None,
+        discovered_centers: set | None = None, collection_id: str | None = None, **params,
+    ):
         self.check_stop()
+        label = KIND_LABELS.get(kind, kind)
+        if collection_id and collection_id in self._checkpoint["completed_collections"]:
+            LOG.info("[%s] 이전 실행에서 이미 완료된 단계이므로 건너뜁니다.", label)
+            return None
         self._report_progress(kind)
         earliest: date | None = None
         older_streak = 0
@@ -323,8 +402,8 @@ class Archive:
         saved_count = 0
         unchanged_count = 0
         skipped_old = 0
+        errors_before = self.errors
         started = time.monotonic()
-        label = KIND_LABELS.get(kind, kind)
         LOG.info("[%s] 백업 시작%s", label, f" ({since.isoformat()} 이후)" if since else "")
         announced_total = False
         try:
@@ -376,16 +455,23 @@ class Archive:
                 try:
                     key = menu_key(item) if kind == "menus" else identifier(item.get("id"))
                     target = folder / key
-                    if kind != "menus" and already_backed_up(target, item):
+                    record_key = f"{collection_id}/{key}" if collection_id else None
+                    resumed_skip = (
+                        record_key is not None
+                        and record_key in self._checkpoint["saved_keys"]
+                        and has_complete_local_record(target, kind)
+                    )
+                    if resumed_skip or (kind != "menus" and already_backed_up(target, item)):
                         self.unchanged += 1
                         unchanged_count += 1
                         self._report_progress()
-                        if item_date is None:
+                        if item_date is None or discovered_centers is not None:
                             try:
                                 cached = json.loads((target / "meta.json").read_text(encoding="utf-8"))
-                                cached_date = record_date(cached)
-                                if cached_date is not None:
-                                    earliest = cached_date if earliest is None else min(earliest, cached_date)
+                                if item_date is None:
+                                    cached_date = record_date(cached)
+                                    if cached_date is not None:
+                                        earliest = cached_date if earliest is None else min(earliest, cached_date)
                                 if discovered_centers is not None:
                                     cid = _extract_center_id(cached)
                                     if cid:
@@ -395,6 +481,9 @@ class Archive:
                         continue
                     saved = self.save(target, kind, item)
                     saved_count += 1
+                    if record_key is not None:
+                        self._checkpoint["saved_keys"].add(record_key)
+                        self._flush_checkpoint()
                     saved_date = record_date(saved)
                     if saved_date is not None:
                         earliest = saved_date if earliest is None else min(earliest, saved_date)
@@ -409,6 +498,9 @@ class Archive:
                     self.failed(kind, exc)
         except (BackupError, OSError) as exc:
             self.failed(kind, exc)
+        if collection_id and self.errors == errors_before:
+            self._checkpoint["completed_collections"].add(collection_id)
+            self._flush_checkpoint()
         LOG.info(
             "[%s] 백업 완료 (소요 %s · 조회 %d건 · 저장 %d건 · 기존 %d건 · 기준일 이전 스킵 %d건)",
             label, format_duration(time.monotonic() - started), seen, saved_count, unchanged_count, skipped_old,
@@ -416,7 +508,22 @@ class Archive:
         return earliest
 
     def run(self, children, options):
+        loaded = load_checkpoint(self._checkpoint_path)
+        if loaded:
+            self._checkpoint = loaded
+            LOG.info(
+                "이전 중단 지점을 확인했습니다. 이미 완료된 %d개 단계와 %d건의 기록을 건너뛰고 이어서 백업합니다.",
+                len(loaded["completed_collections"]), len(loaded["saved_keys"]),
+            )
         center_since: dict[str, date | None] = {}
+        for cid, iso in self._checkpoint["center_since"].items():
+            if iso is None:
+                center_since[cid] = None
+            else:
+                try:
+                    center_since[cid] = date.fromisoformat(iso)
+                except ValueError:
+                    center_since[cid] = None
         for child in children:
             self.check_stop()
             child_id = identifier(child.get("id"))
@@ -427,12 +534,12 @@ class Archive:
             earliest_report = self.collection(
                 f"{V12}/children/{child_id}/reports/", root / "reports", "reports",
                 alternate="reports", tz="Asia/Seoul", child=child_id,
-                discovered_centers=report_centers,
+                discovered_centers=report_centers, collection_id=f"child:{child_id}:reports",
             )
             if options["include_albums"]:
                 self.collection(
                     f"{V1}/children/{child_id}/albums/", root / "albums", "albums",
-                    alternate="albums",
+                    alternate="albums", collection_id=f"child:{child_id}:albums",
                 )
             if options["include_notices"] or options["include_menus"]:
                 try:
@@ -443,7 +550,7 @@ class Archive:
                 if not found_centers and report_centers:
                     found_centers = sorted(report_centers)
                     LOG.info("Child %s: recovered %d center ID(s) from report metadata.", child_id, len(found_centers))
-                if not found_centers:
+                if not found_centers and not center_since:
                     LOG.warning(
                         "Child %s: no center ID found (child keys: %s). Notices and menus cannot be fetched.",
                         child_id, ", ".join(sorted(str(k) for k in child.keys())),
@@ -456,6 +563,10 @@ class Archive:
                         )
                     else:
                         center_since.setdefault(center_id, None)
+        self._checkpoint["center_since"] = {
+            cid: (d.isoformat() if d is not None else None) for cid, d in center_since.items()
+        }
+        self._flush_checkpoint()
         LOG.info("Detected %d center(s) for notices/menus backup.", len(center_since))
         for center_id in sorted(center_since):
             root = self.root / "centers" / center_id
@@ -465,10 +576,10 @@ class Archive:
             if options["include_notices"]:
                 self.collection(
                     f"{V1}/centers/{center_id}/notices/", root / "notices", "notices",
-                    alternate="notices", since=since,
+                    alternate="notices", since=since, collection_id=f"center:{center_id}:notices",
                 )
             if options["include_menus"]:
                 self.collection(
                     f"{V1}/centers/{center_id}/menu/", root / "menus", "menus",
-                    alternate="menus", since=since,
+                    alternate="menus", since=since, collection_id=f"center:{center_id}:menus",
                 )

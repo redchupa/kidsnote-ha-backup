@@ -265,6 +265,8 @@ def run_once(client, root, options, stop, progress=None):
         }
         if state == "deferred":
             status["retry_not_before"] = client.pacer.cooldown_until
+        if state == "success":
+            (root / "checkpoint.json").unlink(missing_ok=True)
         write_status(root / "status.json", status)
         if options.get("notify_ha") and state in ("success", "partial"):
             notify_home_assistant(status)
@@ -315,10 +317,13 @@ def main(argv=None):
         Thread(target=server.run, name="archive-viewer", daemon=True).start()
     try:
         first_delay = 0.0
+        resuming = (args.archive / "checkpoint.json").is_file()
         if not args.once and (options["username"] or options["session_cookie"]):
-            first_delay = random.uniform(0, BACKUP_SPREAD_SECONDS)
+            first_delay = 5.0 if resuming else random.uniform(0, BACKUP_SPREAD_SECONDS)
         next_run = time.time() + first_delay
-        if first_delay > 0:
+        if resuming and not args.once:
+            LOG.info("이전 백업이 중단된 기록이 있어 잠시 후 중단 지점부터 이어서 백업을 재개합니다.")
+        elif first_delay > 0:
             start_kst = datetime.fromtimestamp(next_run, timezone(timedelta(hours=9))).strftime("%H:%M")
             LOG.info(
                 "Backup startup stagger: %.0f seconds (키즈노트 서버 분산을 위해 약 %d분 후 %s경 백업을 자동 시작합니다).",

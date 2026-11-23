@@ -369,6 +369,58 @@ class BackupTest(unittest.TestCase):
             list(self.client.items("/api/v1_2/children/1/reports/"))
         self.assertIsNone(self.client.last_count)
 
+    def test_resume_from_checkpoint_after_mid_backup_stop(self):
+        calls = []
+        stop_after_first_album = True
+
+        def fake_get(url, *, headers, **kwargs):
+            path = urlsplit(url).path
+            calls.append(path)
+            if path == "/api/v1/me/children/":
+                return response({"children": [{"id": 1, "enrollment": [{"center_id": 12}]}]})
+            if path == "/api/v1_2/children/1/reports/":
+                return response({"results": [{"id": 10, "date_written": "2026-05-01"}]})
+            if path == "/api/v1_2/reports/10/":
+                return response({"content": "r1"})
+            if path == "/api/v1/children/1/albums/":
+                return response({"results": [
+                    {"id": 41, "title": "Album 1"},
+                    {"id": 42, "title": "Album 2"},
+                ]})
+            if path == "/api/v1/albums/41/comments/":
+                if stop_after_first_album:
+                    self.stop.set()  # interrupt right after album 41 finishes saving
+                return response({"results": []})
+            if path.endswith("/comments/"):
+                return response({"results": []})
+            if path == "/api/v1/centers/12/notices/":
+                return response({"results": [{"id": 51, "created": "2026-05-02T09:00:00+09:00", "content": "n1"}]})
+            if path == "/api/v1/centers/12/menu/":
+                return response({"results": [{"id": 61, "date_menu": "2026-05-02", "lunch": "m1"}]})
+            raise AssertionError(f"Unexpected route: {path}")
+
+        # Run 1: stops right after album 41
+        with patch.object(self.client.session, "get", side_effect=fake_get):
+            self.assertEqual(self.run_backup(), "stopped")
+        self.assertTrue((self.root / "checkpoint.json").is_file())
+        self.assertTrue((self.root / "children/1/reports/10/meta.json").is_file())
+        self.assertTrue((self.root / "children/1/albums/41/meta.json").is_file())
+        self.assertFalse((self.root / "children/1/albums/42/meta.json").exists())
+        self.assertFalse((self.root / "centers/12/notices/51/meta.json").exists())
+
+        # Run 2: resume cleanly without re-fetching completed reports or album 41
+        stop_after_first_album = False
+        self.stop.clear()
+        calls.clear()
+        with patch.object(self.client.session, "get", side_effect=fake_get):
+            self.assertEqual(self.run_backup(), "success")
+        self.assertNotIn("/api/v1_2/children/1/reports/", calls)
+        self.assertNotIn("/api/v1/albums/41/comments/", calls)
+        self.assertTrue((self.root / "children/1/albums/42/meta.json").is_file())
+        self.assertTrue((self.root / "centers/12/notices/51/meta.json").is_file())
+        self.assertTrue((self.root / "centers/12/menus/2026-05-02_61/meta.json").is_file())
+        self.assertFalse((self.root / "checkpoint.json").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

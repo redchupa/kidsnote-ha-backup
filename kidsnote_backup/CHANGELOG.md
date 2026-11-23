@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.11
+
+- Added resumable backup checkpointing (`checkpoint.json`) so stopping and restarting the app mid-backup skips already completed stages and verified local records, resumes right where it stopped without missing any data, and starts within seconds instead of waiting for a full startup stagger.
+
 ## 0.3.10
 
 - Fixed misleading progress counts like `25/1 (100%)` caused by Kidsnote endpoints whose `count` field is smaller than the actual number of records, and localized collection progress logs into clear Korean (`알림장`, `앨범`, `공지`, `식단`).
