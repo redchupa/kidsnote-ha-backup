@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.4
+
+- Added `[필수]` / `[선택]` (`[Required]` / `[Optional]`) prefixes to all configuration option labels so users can tell required login fields apart from optional settings at a glance.
+
 ## 0.4.3
 
 - Fixed an edge-case `IndexError` in monthly schedule/temperature backups if the earliest report date is ahead of the local clock.

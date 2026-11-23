@@ -1,18 +1,18 @@
 configuration:
   username:
-    name: 키즈노트 아이디
-    description: 일반 계정은 아이디·비밀번호만 입력하면 세션 쿠키가 자동으로 발급·갱신됩니다.
+    name: "[필수] 키즈노트 아이디"
+    description: 일반 계정은 아이디·비밀번호만 입력하면 세션 쿠키가 자동으로 발급·갱신됩니다. (2단계 인증·소셜 로그인 계정은 비워두고 아래 세션 쿠키를 입력하세요.)
   password:
-    name: 키즈노트 비밀번호
+    name: "[필수] 키즈노트 비밀번호"
   session_cookie:
-    name: 키즈노트 세션 쿠키 (선택 · 2단계 인증/소셜 로그인 전용)
+    name: "[선택] 키즈노트 세션 쿠키 (2단계 인증·소셜 로그인 전용)"
     description: >-
       일반 아이디·비밀번호 계정은 비워두세요(자동 발급·갱신됨). 2단계 인증이나 소셜 로그인을 쓰는 경우에만
       PC에서 https://www.kidsnote.com/kr/login 에 로그인한 뒤, F12 → 애플리케이션(Application) →
       쿠키(Cookies) → www.kidsnote.com에서 sessionid 행의 값(Value)만 복사해 붙여넣으세요.
       자세한 순서는 앱의 문서 탭에서 확인할 수 있습니다.
   child_ids:
-    name: 백업할 자녀 ID (선택 · 비워두면 전체 백업)
+    name: "[선택] 백업할 자녀 ID (비워두면 전체 백업)"
     description: >-
       비워두면 모든 자녀를 백업합니다. 특정 자녀만 선택하려면 PC 브라우저에서 키즈노트에 로그인한 뒤,
       같은 브라우저 새 탭에서 https://www.kidsnote.com/api/v1/me/children/ 를 열어 확인하세요.
@@ -20,26 +20,26 @@ configuration:
       → results 안에서 자녀 이름(name)과 같은 깊이에 있는 id(예: 1234567)만 입력 후 Enter를 누르세요.
       (picture, parent, enrollment 안의 id는 사진·부모·등록 ID이므로 넣지 마세요. YAML 모드에서는 child_ids: [1234567] 형식 사용)
   interval_hours:
-    name: 백업 간격 (시간)
+    name: "[선택] 백업 간격 (시간 · 기본 24)"
     description: 백업이 끝나면 이 시간에 최대 30분을 더해 기다립니다.
   include_albums:
-    name: 앨범 백업
+    name: "[선택] 앨범 백업"
   include_notices:
-    name: 공지사항 백업
+    name: "[선택] 공지사항 백업"
   include_menus:
-    name: 식단 백업
+    name: "[선택] 식단 백업"
   include_schedules:
-    name: 일정표 백업
+    name: "[선택] 일정표 백업"
     description: 첫 알림장 날짜 이후의 원 일정표를 백업합니다.
   include_medications:
-    name: 투약의뢰서 백업
+    name: "[선택] 투약의뢰서 백업"
     description: 첫 알림장 날짜 이후의 투약의뢰서를 백업합니다.
   include_return_homes:
-    name: 귀가동의서 백업
+    name: "[선택] 귀가동의서 백업"
     description: 첫 알림장 날짜 이후의 귀가동의서를 백업합니다.
   include_temperatures:
-    name: 체온기록 백업
+    name: "[선택] 체온기록 백업"
     description: 첫 알림장 날짜 이후의 원아 체온 기록을 백업합니다.
   notify_ha:
-    name: Home Assistant 이벤트 알림
+    name: "[선택] Home Assistant 이벤트 알림"
     description: 새 기록이 백업되면 Home Assistant에 kidsnote_backup_completed 이벤트를 전송합니다.
