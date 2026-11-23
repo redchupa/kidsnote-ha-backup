@@ -20,14 +20,21 @@ import doc_text
 import supplies
 
 WEB = Path(__file__).with_name("web")
-GROUPS = {"reports": "children", "albums": "children", "notices": "centers", "menus": "centers"}
+GROUPS = {
+    "reports": "children", "albums": "children", "notices": "centers", "menus": "centers",
+    "schedules": "centers", "medications": "children", "return_homes": "children", "temperatures": "children",
+}
 ID = re.compile(r"[0-9]{1,30}")
 MONTH = re.compile(r"[0-9]{4}-(?:0[1-9]|1[0-2])")
 MENU_ID = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}(?:_[0-9]{1,30})?")
+SCHEDULE_ID = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}_(?:[0-9]{1,30}|e[a-f0-9]{12})")
 FILENAME = re.compile(r"[a-zA-Z0-9_-]+\.[a-zA-Z0-9]{1,10}")
 DEFAULT_TITLE = "키즈노트 보관함"
 THEMES = ("auto", "white", "black", "blue", "ivory", "cute", "futuristic")
-TABS = ("reports", "albums", "notices", "menus", "supplies", "calendar")
+TABS = (
+    "reports", "albums", "notices", "menus", "supplies", "calendar",
+    "schedules", "medications", "return_homes", "temperatures",
+)
 MAX_CHECKED_SUPPLIES = 500
 STATE_LOCK = Lock()
 IMAGE = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
@@ -122,7 +129,10 @@ def comments(item):
 
 
 def date_of(item):
-    return supplies.to_date(item.get("date_written") or item.get("date_menu") or item.get("created"))
+    return supplies.to_date(
+        item.get("date_written") or item.get("date_menu") or item.get("date_event")
+        or item.get("date_medicated") or item.get("datetime_requested") or item.get("created")
+    )
 
 
 def safe_path(path):
@@ -147,7 +157,13 @@ def meta_path(root, key):
     kind, owner, item = parts
     if kind not in GROUPS or not ID.fullmatch(owner):
         return None
-    if not (MENU_ID if kind == "menus" else ID).fullmatch(item):
+    pattern = (
+        MENU_ID if kind == "menus"
+        else SCHEDULE_ID if kind == "schedules"
+        else MONTH if kind == "temperatures"
+        else ID
+    )
+    if not pattern.fullmatch(item):
         return None
     return root / GROUPS[kind] / owner / kind / item / "meta.json"
 
@@ -168,7 +184,7 @@ def asset_summary(path, name):
     return {"file": path.name, "name": name, "type": kind}
 
 
-@lru_cache(maxsize=24)
+@lru_cache(maxsize=512)
 def document_text(path, mtime, size):
     if size > doc_text.MAX_INPUT_BYTES:
         return ""
@@ -210,20 +226,29 @@ def summary(path, mtime, size):
         for entry in (item, *comments(item))
         for p, _ in attachments(entry, path.parent)
     )
-    menu = "\n".join(plain(item.get(key)) for key in MENU)
-    doc_texts = [
-        extracted
-        for entry in (item, *comments(item))
+    doc_files = tuple(
+        p for entry in (item, *comments(item))
         for p, _ in attachments(entry, path.parent)
-        if (extracted := document(p))
-    ]
+        if doc_text.can_extract(p.name)
+    )
+    menu = "\n".join(plain(item.get(key)) for key in MENU)
+    extra_parts = []
+    if item.get("symptom"):
+        extra_parts.append(plain(item.get("symptom")))
+    if item.get("method") or item.get("guardian_name"):
+        extra_parts.append(" · ".join(p for p in (plain(item.get("method")), plain(item.get("guardian_name"))) if p))
+    if item.get("address_summary"):
+        extra_parts.append(plain(item.get("address_summary")))
+    extra = " ".join(extra_parts)
+    fallback_title = (text.splitlines() or [""])[0][:66] or extra[:66]
     return {
-        "title": title or (text.splitlines() or [""])[0][:66],
+        "title": title or fallback_title,
         "date": day.isoformat() if day else "",
-        "excerpt": " ".join((text or menu).split())[:130],
+        "excerpt": " ".join((text or menu or extra).split())[:130],
         "cover": cover,
         "has_video": has_video,
-        "search": "\n".join([title, text, menu] + [body(comment) for comment in comments(item)] + doc_texts).casefold(),
+        "doc_files": doc_files,
+        "search": "\n".join([title, text, menu, extra] + [body(comment) for comment in comments(item)]).casefold(),
     }
 
 
@@ -335,6 +360,76 @@ def safe_zip_name(label, fallback, used):
     return candidate
 
 
+def item_fields(kind, data):
+    if kind in ("menus", "reports"):
+        values = MENU if kind == "menus" else LIFE
+        return [{"label": label, "value": display(data[field], field)}
+                for field, label in values.items() if data.get(field) not in (None, "", [], {})]
+    fields = []
+    if kind == "schedules":
+        for key, label in (("class_name", "반"), ("address_summary", "장소"), ("author_name", "작성자")):
+            if data.get(key):
+                fields.append({"label": label, "value": plain(str(data[key]))})
+    elif kind == "medications":
+        if data.get("class_name"):
+            fields.append({"label": "반", "value": plain(str(data["class_name"]))})
+        if data.get("symptom"):
+            fields.append({"label": "증상", "value": plain(str(data["symptom"]))})
+        med_items = data.get("items") or []
+        if isinstance(med_items, list) and med_items:
+            pres_map = {"room": "실온", "refrigerated": "냉장", "cold": "냉장"}
+            lines = []
+            for entry in med_items:
+                if not isinstance(entry, dict):
+                    continue
+                parts = []
+                if entry.get("medicine_type"):
+                    parts.append(str(entry["medicine_type"]))
+                if entry.get("dosage"):
+                    parts.append(f"용량 {entry['dosage']}")
+                if entry.get("frequency"):
+                    parts.append(f"{entry['frequency']}회")
+                if entry.get("medication_time"):
+                    parts.append(f"시간 {entry['medication_time']}")
+                if entry.get("preservation"):
+                    parts.append(f"보관 {pres_map.get(str(entry['preservation']), entry['preservation'])}")
+                if entry.get("special_note"):
+                    parts.append(f"특이사항 {entry['special_note']}")
+                if parts:
+                    lines.append(" · ".join(parts))
+            if lines:
+                fields.append({"label": "투약 내용", "value": "\n".join(lines)})
+        report = data.get("report")
+        if isinstance(report, dict):
+            rep_parts = []
+            if report.get("reporter_name"):
+                rep_parts.append(f"담당 {report['reporter_name']}")
+            if report.get("special_note"):
+                rep_parts.append(str(report["special_note"]))
+            if rep_parts:
+                fields.append({"label": "투약 완료 보고", "value": " · ".join(rep_parts)})
+    elif kind == "return_homes":
+        for key, label in (
+            ("class_name", "반"),
+            ("datetime_requested", "귀가 요청 일시"),
+            ("method", "귀가 방법"),
+            ("guardian_name", "보호자/인계자"),
+        ):
+            if data.get(key):
+                fields.append({"label": label, "value": plain(str(data[key]))})
+        if "is_confirmed" in data:
+            fields.append({"label": "원 확인", "value": "확인 완료" if data.get("is_confirmed") else "미확인"})
+        if data.get("date_confirmed"):
+            fields.append({"label": "확인 시각", "value": plain(str(data["date_confirmed"]))})
+    elif kind == "temperatures":
+        for idx, entry in enumerate(data.get("records") or [], 1):
+            if isinstance(entry, dict):
+                rendered = display(entry)
+                if rendered:
+                    fields.append({"label": f"기록 {idx}", "value": rendered})
+    return fields
+
+
 def create_app(root, proxy="172.30.32.2", backup_controller=None):
     root = Path(root).resolve()
     app = Flask(__name__, static_folder=None)
@@ -404,9 +499,17 @@ def create_app(root, proxy="172.30.32.2", backup_controller=None):
                 months.add(record["date"][:7])
             if only_video and not record["has_video"]:
                 continue
-            if (month and not record["date"].startswith(month)) or not all(word in record["search"] for word in query):
+            if month and not record["date"].startswith(month):
                 continue
-            items.append({"key": key, **{field: value for field, value in record.items() if field != "search"}})
+            if query and not all(word in record["search"] for word in query):
+                if not record["doc_files"]:
+                    continue
+                combined = record["search"] + "\n" + "\n".join(document(p) for p in record["doc_files"]).casefold()
+                if not all(word in combined for word in query):
+                    continue
+            items.append({"key": key, **{
+                field: value for field, value in record.items() if field not in ("search", "doc_files")
+            }})
         items.sort(key=lambda item: (item["date"], item["key"]), reverse=True)
         filters = [
             {"id": value, "name": plain(read_json(root / GROUPS[kind] / value / "profile.json").get("name"))}
@@ -425,14 +528,12 @@ def create_app(root, proxy="172.30.32.2", backup_controller=None):
             abort(404)
         day = date_of(data)
         kind = key.split("/")[0]
-        values = MENU if kind == "menus" else LIFE if kind == "reports" else {}
-        fields = [{"label": label, "value": display(data[field], field)}
-                  for field, label in values.items() if data.get(field) not in (None, "", [], {})]
+        fields = item_fields(kind, data)
         return {
             "title": plain(data.get("title")),
             "body": body(data),
             "date": day.isoformat() if day else "",
-            "author": plain(author(data).get("name")),
+            "author": plain(author(data).get("name") or data.get("author_name")),
             "fields": fields,
             "attachments": [serialize_asset(p, n) for p, n in attachments(data, path.parent)],
             "comments": [{
@@ -487,10 +588,11 @@ def create_app(root, proxy="172.30.32.2", backup_controller=None):
         for child_id in sorted(child_ids):
             child_names[child_id] = plain(read_json(root / "children" / child_id / "profile.json").get("name"))
         items = []
-        for kind in ("reports", "albums", "notices", "menus"):
+        for kind in ("reports", "albums", "notices", "menus", "schedules", "medications", "return_homes"):
             for key, path in records(root, kind):
                 group_id = key.split("/")[1]
-                if owner and kind in ("reports", "albums") and group_id != owner:
+                is_child_kind = GROUPS[kind] == "children"
+                if owner and is_child_kind and group_id != owner:
                     continue
                 try:
                     stat = path.stat()
@@ -507,7 +609,7 @@ def create_app(root, proxy="172.30.32.2", backup_controller=None):
                     "excerpt": record["excerpt"],
                     "cover": record["cover"],
                     "owner": group_id,
-                    "owner_name": child_names.get(group_id, "") if kind in ("reports", "albums") else "",
+                    "owner_name": child_names.get(group_id, "") if is_child_kind else "",
                 })
         items.sort(key=lambda entry: (entry["date"], entry["kind"], entry["key"]), reverse=True)
         return {

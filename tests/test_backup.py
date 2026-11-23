@@ -421,6 +421,87 @@ class BackupTest(unittest.TestCase):
         self.assertTrue((self.root / "centers/12/menus/2026-05-02_61/meta.json").is_file())
         self.assertFalse((self.root / "checkpoint.json").exists())
 
+    def test_schedules_medications_return_homes_and_temperatures(self):
+        self.options.update({
+            "include_albums": False, "include_notices": False, "include_menus": False,
+            "include_schedules": True, "include_medications": True,
+            "include_return_homes": True, "include_temperatures": True,
+        })
+
+        def fake_get(url, *, headers, **kwargs):
+            parsed = urlsplit(url)
+            query = parse_qs(parsed.query)
+            path = parsed.path
+            if parsed.hostname == "cdn.example.test":
+                return response(b"img-bytes")
+            if path == "/api/v1/me/children/":
+                return response({"children": [
+                    {"id": 1, "enrollment": [{"center_id": 12, "belong_to_class": 34}]},
+                ]})
+            if path == "/api/v1_2/children/1/reports/":
+                return response({"results": [{"id": 10, "date_written": "2026-11-01"}]})
+            if path == "/api/v1_2/reports/10/":
+                return response({"content": "first report"})
+            if path.endswith("/comments/"):
+                return response({"results": []})
+            if path == "/api/v1_2/centers/12/medications":
+                self.assertEqual(query.get("cls"), ["34"])
+                self.assertEqual(query.get("child"), ["1"])
+                return response({"results": [
+                    {
+                        "id": 701, "date_medicated": "2026-11-10", "symptom": "감기",
+                        "items": [{"medicine_type": "시럽", "dosage": "5ml", "frequency": 1}],
+                        "attached_image": {"id": 9, "original": "https://cdn.example.test/med.jpg"},
+                    },
+                    {"id": 700, "date_medicated": "2026-10-15", "symptom": "이전 기록"},
+                ]})
+            if path == "/api/v1_2/centers/12/return-home":
+                self.assertEqual(query.get("cls"), ["34"])
+                self.assertEqual(query.get("child"), ["1"])
+                return response({"results": [
+                    {
+                        "id": 801, "datetime_requested": "2026-11-12T16:00:00Z",
+                        "method": "자가용", "guardian_name": "어머니", "is_confirmed": True,
+                    },
+                    {"id": 800, "datetime_requested": "2026-10-01T16:00:00Z", "method": "도보"},
+                ]})
+            if path == "/api/v1/centers/12/children/temperatures":
+                self.assertEqual(query.get("child_id"), ["1"])
+                if query.get("measured_month") == ["2026-11"]:
+                    return response([{"date": "2026-11-10", "temperature": 36.7}])
+                return response([])
+            if path == "/api/v1/centers/12/calendar":
+                self.assertEqual(query.get("cls"), ["34"])
+                if query.get("month_event") == ["2026-11"]:
+                    return response([
+                        {"id": 901, "date_event": "2026-11-20", "title": "가을 소풍", "content": "도시락 지참"},
+                        {"id": None, "date_event": "2026-11-22", "title": "생일 축하", "content": ""},
+                        {"id": 900, "date_event": "2026-10-20", "title": "이전 일정", "content": ""},
+                    ])
+                return response([])
+            raise AssertionError(f"Unexpected route: {path}")
+
+        with (patch.object(self.client.session, "get", side_effect=fake_get),
+              patch("archive.datetime") as dt_mock):
+            from datetime import datetime, timezone, timedelta
+            dt_mock.now.return_value = datetime(2026, 11, 23, 12, 0, tzinfo=timezone(timedelta(hours=9)))
+            dt_mock.fromisoformat = datetime.fromisoformat
+            self.assertEqual(self.run_backup(), "success")
+
+        # Medications: 701 saved (with attachment), 700 before 2026-11-01 skipped
+        self.assertTrue((self.root / "children/1/medications/701/meta.json").is_file())
+        self.assertFalse((self.root / "children/1/medications/700/meta.json").exists())
+        # Return-homes: 801 saved, 800 before 2026-11-01 skipped
+        self.assertTrue((self.root / "children/1/return_homes/801/meta.json").is_file())
+        self.assertFalse((self.root / "children/1/return_homes/800/meta.json").exists())
+        # Temperatures: 2026-11 saved
+        self.assertTrue((self.root / "children/1/temperatures/2026-11/meta.json").is_file())
+        # Schedules: 901 and null-id birthday saved, 900 before 2026-11-01 skipped
+        sched_dirs = sorted(p.name for p in (self.root / "centers/12/schedules").iterdir())
+        self.assertEqual(len(sched_dirs), 2)
+        self.assertIn("2026-11-20_901", sched_dirs)
+        self.assertTrue(any(name.startswith("2026-11-22_e") for name in sched_dirs))
+
 
 if __name__ == "__main__":
     unittest.main()

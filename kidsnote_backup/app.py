@@ -57,6 +57,11 @@ def read_options(path: Path):
         if type(value) is not bool:
             raise BackupError(f"{key} must be true or false.")
         options[key] = value
+    for key in ("include_schedules", "include_medications", "include_return_homes", "include_temperatures"):
+        value = raw.get(key, False)
+        if type(value) is not bool:
+            raise BackupError(f"{key} must be true or false.")
+        options[key] = value
     notify_ha = raw.get("notify_ha", False)
     if type(notify_ha) is not bool:
         raise BackupError("notify_ha must be true or false.")
@@ -300,8 +305,7 @@ def main(argv=None):
     stop = Event()
     for sig in (signal.SIGINT, signal.SIGTERM):
         signal.signal(sig, lambda *_: stop.set())
-    # Temporary fast pacing for live verification (revert to RequestPacer(stop) after testing).
-    pacer = RequestPacer(stop, api_interval=0.1, media_interval=0.1)
+    pacer = RequestPacer(stop)
     previous = read_status(args.archive / "status.json").get("retry_not_before")
     if type(previous) in (float, int) and math.isfinite(previous):
         pacer.cooldown_until = previous

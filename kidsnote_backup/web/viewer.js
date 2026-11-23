@@ -2,8 +2,16 @@
 
 const main = document.querySelector("main");
 const tabs = [...document.querySelectorAll(".tabs a")];
-const labels = { reports: "알림장", albums: "앨범", notices: "공지", menus: "식단", supplies: "준비물", calendar: "달력" };
-const catalogKinds = new Set(["reports", "albums", "notices", "menus"]);
+const labels = {
+  reports: "알림장", albums: "앨범", notices: "공지", menus: "식단",
+  schedules: "일정표", medications: "투약의뢰서", return_homes: "귀가동의서", temperatures: "체온기록",
+  supplies: "준비물", calendar: "달력",
+};
+const catalogKinds = new Set([
+  "reports", "albums", "notices", "menus", "schedules", "medications", "return_homes", "temperatures",
+]);
+const childKinds = new Set(["reports", "albums", "medications", "return_homes", "temperatures"]);
+const videoFilterKinds = new Set(["reports", "albums", "notices"]);
 const pageSize = 12;
 const DEFAULT_TITLE = "키즈노트 보관함";
 const STORAGE_KEY = "kidsnote_ui_settings";
@@ -479,7 +487,7 @@ async function renderList(kind, params, signal) {
   search.maxLength = 200;
   search.placeholder = "제목, 본문, 댓글, 첨부문서";
   const owner = element("select");
-  const ownerLabel = ["reports", "albums"].includes(kind) ? "자녀" : "기관";
+  const ownerLabel = childKinds.has(kind) ? "자녀" : "기관";
   fillSelect(owner, [
     { id: "", name: "모든 " + ownerLabel },
     ...data.owners.map(group => ({
@@ -490,7 +498,7 @@ async function renderList(kind, params, signal) {
   const month = element("select");
   fillSelect(month, [{ id: "", name: "모든 달" }, ...data.months.map(day => ({ id: day, name: day }))], filters.month);
   let videoOnly = null;
-  if (kind !== "menus") {
+  if (videoFilterKinds.has(kind)) {
     videoOnly = element("input");
     videoOnly.type = "checkbox";
     videoOnly.checked = filters.video === "1";
@@ -624,7 +632,15 @@ async function renderItem(key, signal) {
       fact.append(element("dt", "", info.label), element("dd", "", info.value));
       fields.append(fact);
     }
-    article.append(section(kind === "menus" ? "하루 식단" : "생활 기록", fields));
+    const sectionTitles = {
+      menus: "하루 식단",
+      reports: "생활 기록",
+      schedules: "일정 정보",
+      medications: "투약 의뢰 내용",
+      return_homes: "귀가 동의 내용",
+      temperatures: "월간 체온 기록",
+    };
+    article.append(section(sectionTitles[kind] || "상세 정보", fields));
   }
 
   const allImages = [];
@@ -855,10 +871,13 @@ async function renderCalendar(params, signal) {
     }
 
     const kindOrder = [
+      ["schedules", "🗓 일정표"],
       ["reports", "📝 알림장"],
       ["albums", "📷 앨범"],
       ["menus", "🍱 식단"],
       ["notices", "📢 공지"],
+      ["medications", "💊 투약의뢰서"],
+      ["return_homes", "🏠 귀가동의서"],
     ];
 
     let anyRecord = false;
@@ -913,9 +932,9 @@ async function renderCalendar(params, signal) {
       if (day < 1) continue;
       const value = isoDay(year, monthIndex, day);
 
-      const hasEvent = data.events.some(e => e.start <= value && e.end >= value);
       const dayRecs = data.records.filter(r => r.date === value);
       const kindsPresent = new Set(dayRecs.map(r => r.kind));
+      const hasEvent = data.events.some(e => e.start <= value && e.end >= value) || kindsPresent.has("schedules");
       const hasAny = hasEvent || dayRecs.length > 0;
 
       const dayButton = element("button", "calendar-day" + (hasAny ? " has-items" : "") + (hasEvent ? " has-event" : ""));

@@ -248,3 +248,50 @@ class ViewerTest(unittest.TestCase):
 
         # All reports returns both (2 total)
         self.assertEqual(self.get("/api/catalog?kind=reports").json["total"], 2)
+
+    def test_new_collections_in_viewer_and_calendar(self):
+        med = self.root / "children" / "1" / "medications" / "701"
+        med.mkdir(parents=True)
+        (med / "meta.json").write_text(json.dumps({
+            "id": 701, "date_medicated": "2026-11-18", "symptom": "코감기",
+            "items": [{"medicine_type": "시럽", "dosage": "5ml", "frequency": 2, "preservation": "room"}],
+            "report": {"reporter_name": "담임선생님", "special_note": "잘 먹었어요"},
+            "_local_attachments": [], "_comments": [],
+        }), encoding="utf-8")
+
+        ret = self.root / "children" / "1" / "return_homes" / "801"
+        ret.mkdir(parents=True)
+        (ret / "meta.json").write_text(json.dumps({
+            "id": 801, "datetime_requested": "2026-11-18T16:30:00Z",
+            "method": "자가용", "guardian_name": "어머니", "is_confirmed": True,
+            "_local_attachments": [], "_comments": [],
+        }), encoding="utf-8")
+
+        sched = self.root / "centers" / "9" / "schedules" / "2026-11-18_901"
+        sched.mkdir(parents=True)
+        (sched / "meta.json").write_text(json.dumps({
+            "id": 901, "date_event": "2026-11-18", "title": "가을 소풍", "content": "도시락 준비",
+            "address_summary": "어린이대공원", "_local_attachments": [], "_comments": [],
+        }), encoding="utf-8")
+
+        temp = self.root / "children" / "1" / "temperatures" / "2026-11"
+        temp.mkdir(parents=True)
+        (temp / "meta.json").write_text(json.dumps({
+            "id": "2026-11", "title": "2026-11 체온 기록 (1건)", "date_written": "2026-11-01",
+            "records": [{"date": "2026-11-18", "temperature": 36.6}], "_local_attachments": [],
+        }), encoding="utf-8")
+
+        self.assertEqual(self.get("/api/catalog?kind=medications").json["total"], 1)
+        self.assertEqual(self.get("/api/catalog?kind=return_homes").json["total"], 1)
+        self.assertEqual(self.get("/api/catalog?kind=schedules").json["total"], 1)
+        self.assertEqual(self.get("/api/catalog?kind=temperatures").json["total"], 1)
+
+        med_detail = self.get("/api/item?key=medications/1/701").json
+        self.assertTrue(any(f["label"] == "투약 내용" and "실온" in f["value"] for f in med_detail["fields"]))
+        ret_detail = self.get("/api/item?key=return_homes/1/801").json
+        self.assertTrue(any(f["label"] == "원 확인" and f["value"] == "확인 완료" for f in ret_detail["fields"]))
+
+        with patch("viewer.supplies.today_kst", return_value=date(2026, 11, 19)):
+            cal = self.get("/api/calendar?month=2026-11").json
+        cal_kinds = {r["kind"] for r in cal["records"]}
+        self.assertTrue({"reports", "schedules", "medications", "return_homes"}.issubset(cal_kinds))

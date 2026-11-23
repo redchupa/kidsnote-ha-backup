@@ -27,6 +27,18 @@ configuration:
     name: 공지사항 백업
   include_menus:
     name: 식단 백업
+  include_schedules:
+    name: 일정표 백업
+    description: 첫 알림장 날짜 이후의 원 일정표를 백업합니다.
+  include_medications:
+    name: 투약의뢰서 백업
+    description: 첫 알림장 날짜 이후의 투약의뢰서를 백업합니다.
+  include_return_homes:
+    name: 귀가동의서 백업
+    description: 첫 알림장 날짜 이후의 귀가동의서를 백업합니다.
+  include_temperatures:
+    name: 체온기록 백업
+    description: 첫 알림장 날짜 이후의 원아 체온 기록을 백업합니다.
   notify_ha:
     name: Home Assistant 이벤트 알림
     description: 새 기록이 백업되면 Home Assistant에 kidsnote_backup_completed 이벤트를 전송합니다.

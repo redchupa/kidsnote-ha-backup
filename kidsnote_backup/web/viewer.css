@@ -690,8 +690,9 @@ dialog.lightbox::backdrop { background: rgba(6, 8, 15, .92); }
 
 @media (max-width: 480px) {
   .shell { width: calc(100% - 1.5rem); }
-  .tabs { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 0; }
-  .tabs a { padding-inline: 0; font-size: .88rem; }
+  .tabs { flex-wrap: nowrap; overflow-x: auto; gap: .2rem; scrollbar-width: none; }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tabs a { flex: 0 0 auto; padding-inline: .75rem; font-size: .88rem; white-space: nowrap; }
   .grid { grid-template-columns: 1fr; }
   .gallery, .facts, .theme-grid { grid-template-columns: 1fr; }
   .filters select { width: 100%; }

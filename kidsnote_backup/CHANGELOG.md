@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.0
+
+- Added backup and viewer support (with new tabs and calendar integration) for 4 additional Kidsnote menus, all filtered from the earliest report date onward:
+  - **일정표 (Schedules)** (`/service/schedule`)
+  - **투약의뢰서 (Medication requests)** (`/service/medication`)
+  - **귀가동의서 (Return-home consents)** (`/service/return-home`)
+  - **체온기록 (Temperature logs)** (`/service/temperature/child`)
+- Fixed catalog slowness / timeouts on large notice archives by lazily extracting PDF/HWP/DOCX text only when a search query is entered, and expanded the document text cache.
+- Clarified progress logs when date filtering (`since`) is active on center collections.
+- Restored standard server-friendly request pacing (`1s` API / `2s` media) after live verification.
+
 ## 0.3.13
 
 - Temporarily reduced request pacing intervals (`0.1s`) for faster end-to-end backup testing (while keeping HTTP 429/503 cooldown protection active).

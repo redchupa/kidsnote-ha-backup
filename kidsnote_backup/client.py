@@ -105,12 +105,18 @@ class KidsnoteClient:
                 raise HttpError(response.status_code)
         raise BackupError("Too many attachment redirects.")
 
-    def json(self, url: str) -> dict:
+    def json_any(self, url: str):
         with self.get(url) as response:
             try:
                 payload = response.json()
             except ValueError as exc:
                 raise BackupError("Kidsnote returned an unreadable JSON response.") from exc
+        if not isinstance(payload, (dict, list)):
+            raise BackupError("Kidsnote returned an unexpected JSON response.")
+        return payload
+
+    def json(self, url: str) -> dict:
+        payload = self.json_any(url)
         if not isinstance(payload, dict):
             raise BackupError("Kidsnote returned an unexpected JSON response.")
         return payload

@@ -9,9 +9,9 @@ import re
 import tempfile
 import time
 from contextlib import contextmanager
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from urllib.parse import urljoin
+from urllib.parse import urlencode, urljoin
 
 import requests
 
@@ -22,7 +22,7 @@ from pacing import Stopping
 LOG = logging.getLogger(__name__)
 V1 = "/api/v1"
 V12 = "/api/v1_2"
-IMAGE_KEYS = ("attached_images", "attached_pictures", "pictures", "images")
+IMAGE_KEYS = ("attached_images", "attached_pictures", "pictures", "images", "attached_image", "picture")
 VIDEO_KEYS = ("attached_video", "video", "attached_videos")
 FILE_KEYS = ("attached_files", "files", "attachments")
 URL_KEYS = ("original", "url", "src", "high", "high_resize", "large_resize")
@@ -31,17 +31,26 @@ EXTENSION = re.compile(r"\.[a-z0-9]{1,10}", re.ASCII)
 REFRESH_SECONDS = 7 * 24 * 60 * 60
 CHECKPOINT_TTL_SECONDS = 48 * 60 * 60
 OLDER_STOP_STREAK = 10
+KST = timezone(timedelta(hours=9))
 KIND_LABELS = {
     "reports": "알림장",
     "albums": "앨범",
     "notices": "공지",
     "menus": "식단",
+    "schedules": "일정표",
+    "medications": "투약의뢰서",
+    "return_homes": "귀가동의서",
+    "temperatures": "체온기록",
 }
 ESTIMATE_SECONDS_PER_ITEM = {
     "reports": (6, 20),
     "albums": (10, 40),
     "notices": (2, 6),
     "menus": (2, 5),
+    "schedules": (1, 3),
+    "medications": (2, 5),
+    "return_homes": (2, 4),
+    "temperatures": (1, 2),
 }
 
 
@@ -95,7 +104,16 @@ def _extract_center_id(obj):
     return identifier(value) if value else None
 
 
-def center_ids(child):
+def _extract_class_id(obj):
+    if not isinstance(obj, dict):
+        return None
+    value = obj.get("belong_to_class") or obj.get("cls")
+    if isinstance(value, dict):
+        value = value.get("id")
+    return identifier(value) if value else None
+
+
+def enrollments_info(child):
     seen = set()
     enrollments = child.get("enrollment")
     if isinstance(enrollments, dict):
@@ -107,9 +125,40 @@ def center_ids(child):
         enrollments = [*enrollments, *extra]
     for entry in (*enrollments, child):
         cid = _extract_center_id(entry)
-        if cid and cid not in seen:
+        cls_id = _extract_class_id(entry)
+        if cid and (cid, cls_id) not in seen:
+            seen.add((cid, cls_id))
+            yield cid, cls_id
+
+
+def center_ids(child):
+    seen = set()
+    for cid, _ in enrollments_info(child):
+        if cid not in seen:
             seen.add(cid)
             yield cid
+
+
+def month_range(start: date, end: date) -> list[str]:
+    year, month = start.year, start.month
+    end_ym = (end.year, end.month)
+    months = []
+    while (year, month) <= end_ym and len(months) < 120:
+        months.append(f"{year:04d}-{month:02d}")
+        month += 1
+        if month > 12:
+            year += 1
+            month = 1
+    return months
+
+
+def schedule_key(item) -> str:
+    day_val = record_date(item)
+    day = day_val.isoformat() if day_val else "0000-00-00"
+    if item.get("id") is not None:
+        return f"{day}_{identifier(item['id'])}"
+    raw = f"{day}\n{item.get('title', '')}\n{item.get('content', '')}"
+    return f"{day}_e{hashlib.sha256(raw.encode('utf-8')).hexdigest()[:12]}"
 
 
 def menu_key(item):
@@ -121,7 +170,7 @@ def menu_key(item):
 
 
 def record_date(item) -> date | None:
-    for key in ("date_written", "date_menu", "created"):
+    for key in ("date_written", "date_menu", "date_event", "date_medicated", "datetime_requested", "created"):
         value = item.get(key)
         if value:
             try:
@@ -317,13 +366,16 @@ class Archive:
                 self.media(folder, item[key], key, ".jpg")
                 for key in MENU_PHOTOS if item.get(key)
             ]
+        elif kind == "temperatures":
+            attachments = []
         else:
-            item_id = identifier(item.get("id"))
-            if kind == "reports":
+            has_comments = kind in ("reports", "albums", "notices")
+            item_id = identifier(item.get("id")) if (has_comments or item.get("id") is not None) else None
+            if kind == "reports" and item_id is not None:
                 detail = self.client.json(f"{KIDSNOTE_BASE}{V12}/reports/{item_id}/")
                 item = {**item, **detail}
             comments = []
-            if item.get("num_comments") != 0:
+            if has_comments and item_id is not None and item.get("num_comments") != 0:
                 try:
                     comments = list(self.client.items(f"{V1}/{kind}/{item_id}/comments/"))
                 except HttpError as exc:
@@ -340,7 +392,7 @@ class Archive:
                     for comment in comments
                 ]
             item = {**item, "_comments": comments}
-            body = first_value(item, ("content", "body", "report"))
+            body = first_value(item, ("content", "body", "report", "symptom", "method"))
             heading = item.get("title")
             lines = [value for value in (heading, body) if isinstance(value, str) and value]
             with atomic_file(folder / "note.txt") as handle:
@@ -415,16 +467,20 @@ class Archive:
                     announced_total = True
                     raw_total = getattr(self.client, "last_count", None)
                     if type(raw_total) is int and raw_total > 0:
-                        self._phase_total = raw_total
-                        low_s, high_s = ESTIMATE_SECONDS_PER_ITEM.get(kind, (3, 10))
-                        low_str = format_duration(raw_total * low_s)
-                        high_str = format_duration(raw_total * high_s)
-                        estimate_range = low_str if low_str == high_str else f"{low_str} ~ {high_str}"
-                        LOG.info(
-                            "[%s] 총 %d건 확인됨 (첫 백업 시 사진·영상 수에 따라 %s 정도 소요될 수 있습니다).",
-                            label, raw_total, estimate_range,
-                        )
-                        self._report_progress()
+                        if since is not None:
+                            LOG.info("[%s] 기관 전체 %d건 중 %s 이후 기록만 선별하여 백업합니다.",
+                                     label, raw_total, since.isoformat())
+                        else:
+                            self._phase_total = raw_total
+                            low_s, high_s = ESTIMATE_SECONDS_PER_ITEM.get(kind, (3, 10))
+                            low_str = format_duration(raw_total * low_s)
+                            high_str = format_duration(raw_total * high_s)
+                            estimate_range = low_str if low_str == high_str else f"{low_str} ~ {high_str}"
+                            LOG.info(
+                                "[%s] 총 %d건 확인됨 (첫 백업 시 사진·영상 수에 따라 %s 정도 소요될 수 있습니다).",
+                                label, raw_total, estimate_range,
+                            )
+                            self._report_progress()
                 if self._phase_total is not None and seen > self._phase_total:
                     self._phase_total = None
                     self._phase_eta = None
@@ -507,6 +563,139 @@ class Archive:
         )
         return earliest
 
+    def monthly_schedules(self, center_id, class_id, folder, since: date | None, collection_id: str):
+        self.check_stop()
+        if collection_id in self._checkpoint["completed_collections"]:
+            LOG.info("[일정표] 이전 실행에서 이미 완료된 단계이므로 건너뜁니다.")
+            return
+        self._report_progress("schedules")
+        today = datetime.now(KST).date()
+        start = since or (today - timedelta(days=31))
+        end_year, end_month = today.year, today.month + 2
+        if end_month > 12:
+            end_year += 1
+            end_month -= 12
+        months = month_range(start, date(end_year, end_month, 1))
+        started = time.monotonic()
+        errors_before = self.errors
+        saved_count = 0
+        unchanged_count = 0
+        seen = 0
+        LOG.info("[일정표] 백업 시작 (%s ~ %s, %d개월)", months[0], months[-1], len(months))
+        for ym in months:
+            self.check_stop()
+            query = {"month_event": ym, "including_birthday": ""}
+            if class_id:
+                query["cls"] = class_id
+            url = f"{KIDSNOTE_BASE}{V1}/centers/{center_id}/calendar?{urlencode(query)}"
+            try:
+                payload = self.client.json_any(url)
+            except HttpError as exc:
+                if exc.status in (403, 404):
+                    LOG.info("[일정표] 기관 %s에서 일정표 API를 사용할 수 없습니다 (HTTP %d).", center_id, exc.status)
+                    break
+                self.failed("schedules", exc)
+                continue
+            except (BackupError, OSError) as exc:
+                self.failed("schedules", exc)
+                continue
+            entries = payload if isinstance(payload, list) else payload.get("results", [])
+            if not isinstance(entries, list):
+                continue
+            for item in entries:
+                if not isinstance(item, dict):
+                    continue
+                self.check_stop()
+                item_date = record_date(item)
+                if since is not None and item_date is not None and item_date < since:
+                    continue
+                seen += 1
+                self._phase_seen = seen
+                try:
+                    key = schedule_key(item)
+                    target = folder / key
+                    record_key = f"{collection_id}/{key}"
+                    if record_key in self._checkpoint["saved_keys"] and has_complete_local_record(target, "schedules"):
+                        self.unchanged += 1
+                        unchanged_count += 1
+                        continue
+                    self.save(target, "schedules", item)
+                    saved_count += 1
+                    self._checkpoint["saved_keys"].add(record_key)
+                    self._flush_checkpoint()
+                except (BackupError, OSError) as exc:
+                    self.failed("schedules", exc)
+        if self.errors == errors_before:
+            self._checkpoint["completed_collections"].add(collection_id)
+            self._flush_checkpoint()
+        LOG.info(
+            "[일정표] 백업 완료 (소요 %s · 조회 %d건 · 저장 %d건 · 기존 %d건)",
+            format_duration(time.monotonic() - started), seen, saved_count, unchanged_count,
+        )
+
+    def monthly_temperatures(self, center_id, child_id, folder, since: date | None, collection_id: str):
+        self.check_stop()
+        if collection_id in self._checkpoint["completed_collections"]:
+            LOG.info("[체온기록] 이전 실행에서 이미 완료된 단계이므로 건너뜁니다.")
+            return
+        self._report_progress("temperatures")
+        today = datetime.now(KST).date()
+        start = since or today
+        months = month_range(start, today)
+        started = time.monotonic()
+        errors_before = self.errors
+        saved_count = 0
+        unchanged_count = 0
+        seen = 0
+        LOG.info("[체온기록] 백업 시작 (%s ~ %s, %d개월)", months[0], months[-1], len(months))
+        for ym in months:
+            self.check_stop()
+            query = {"child_id": child_id, "measured_month": ym}
+            url = f"{KIDSNOTE_BASE}{V1}/centers/{center_id}/children/temperatures?{urlencode(query)}"
+            try:
+                payload = self.client.json_any(url)
+            except HttpError as exc:
+                if exc.status in (403, 404):
+                    LOG.info("[체온기록] 기관 %s에서 체온기록 API를 사용할 수 없습니다 (HTTP %d).", center_id, exc.status)
+                    break
+                self.failed("temperatures", exc)
+                continue
+            except (BackupError, OSError) as exc:
+                self.failed("temperatures", exc)
+                continue
+            entries = payload if isinstance(payload, list) else payload.get("results", [])
+            if not isinstance(entries, list) or not entries:
+                continue
+            seen += 1
+            self._phase_seen = seen
+            try:
+                target = folder / ym
+                record_key = f"{collection_id}/{ym}"
+                if record_key in self._checkpoint["saved_keys"] and has_complete_local_record(target, "temperatures"):
+                    self.unchanged += 1
+                    unchanged_count += 1
+                    continue
+                record = {
+                    "id": ym,
+                    "title": f"{ym} 체온 기록 ({len(entries)}건)",
+                    "date_written": f"{ym}-01",
+                    "measured_month": ym,
+                    "records": entries,
+                }
+                self.save(target, "temperatures", record)
+                saved_count += 1
+                self._checkpoint["saved_keys"].add(record_key)
+                self._flush_checkpoint()
+            except (BackupError, OSError) as exc:
+                self.failed("temperatures", exc)
+        if self.errors == errors_before:
+            self._checkpoint["completed_collections"].add(collection_id)
+            self._flush_checkpoint()
+        LOG.info(
+            "[체온기록] 백업 완료 (소요 %s · 기록 월 %d건 · 저장 %d건 · 기존 %d건)",
+            format_duration(time.monotonic() - started), seen, saved_count, unchanged_count,
+        )
+
     def run(self, children, options):
         loaded = load_checkpoint(self._checkpoint_path)
         if loaded:
@@ -516,6 +705,7 @@ class Archive:
                 len(loaded["completed_collections"]), len(loaded["saved_keys"]),
             )
         center_since: dict[str, date | None] = {}
+        center_classes: dict[str, str | None] = {}
         for cid, iso in self._checkpoint["center_since"].items():
             if iso is None:
                 center_since[cid] = None
@@ -541,38 +731,64 @@ class Archive:
                     f"{V1}/children/{child_id}/albums/", root / "albums", "albums",
                     alternate="albums", collection_id=f"child:{child_id}:albums",
                 )
-            if options["include_notices"] or options["include_menus"]:
-                try:
-                    found_centers = list(center_ids(child))
-                except (AttributeError, BackupError, TypeError):
+            child_enrollments: list[tuple[str, str | None]] = []
+            try:
+                child_enrollments = list(enrollments_info(child))
+            except (AttributeError, BackupError, TypeError):
+                if options["include_notices"] or options["include_menus"] or options.get("include_schedules"):
                     self.failed("centers", BackupError("Kidsnote returned invalid enrollment data."))
-                    found_centers = []
-                if not found_centers and report_centers:
-                    found_centers = sorted(report_centers)
-                    LOG.info("Child %s: recovered %d center ID(s) from report metadata.", child_id, len(found_centers))
-                if not found_centers and not center_since:
-                    LOG.warning(
-                        "Child %s: no center ID found (child keys: %s). Notices and menus cannot be fetched.",
-                        child_id, ", ".join(sorted(str(k) for k in child.keys())),
+            if not child_enrollments and report_centers:
+                child_enrollments = [(cid, None) for cid in sorted(report_centers)]
+                LOG.info("Child %s: recovered %d center ID(s) from report metadata.", child_id, len(child_enrollments))
+            if not child_enrollments and not center_since and (options["include_notices"] or options["include_menus"]):
+                LOG.warning(
+                    "Child %s: no center ID found (child keys: %s). Notices and menus cannot be fetched.",
+                    child_id, ", ".join(sorted(str(k) for k in child.keys())),
+                )
+            for center_id, class_id in child_enrollments:
+                if class_id and not center_classes.get(center_id):
+                    center_classes[center_id] = class_id
+                previous = center_since.get(center_id)
+                if earliest_report is not None:
+                    center_since[center_id] = (
+                        earliest_report if previous is None else min(previous, earliest_report)
                     )
-                for center_id in found_centers:
-                    previous = center_since.get(center_id)
-                    if earliest_report is not None:
-                        center_since[center_id] = (
-                            earliest_report if previous is None else min(previous, earliest_report)
-                        )
-                    else:
-                        center_since.setdefault(center_id, None)
+                else:
+                    center_since.setdefault(center_id, None)
+                child_since = earliest_report if earliest_report is not None else center_since.get(center_id)
+                if options.get("include_medications"):
+                    params = {"child": child_id}
+                    if class_id:
+                        params["cls"] = class_id
+                    self.collection(
+                        f"{V12}/centers/{center_id}/medications", root / "medications", "medications",
+                        alternate="medications", since=child_since,
+                        collection_id=f"child:{child_id}:center:{center_id}:medications", **params,
+                    )
+                if options.get("include_return_homes"):
+                    params = {"child": child_id, "tz": "Asia/Seoul"}
+                    if class_id:
+                        params["cls"] = class_id
+                    self.collection(
+                        f"{V12}/centers/{center_id}/return-home", root / "return_homes", "return_homes",
+                        alternate="return_homes", since=child_since,
+                        collection_id=f"child:{child_id}:center:{center_id}:return_homes", **params,
+                    )
+                if options.get("include_temperatures"):
+                    self.monthly_temperatures(
+                        center_id, child_id, root / "temperatures", child_since,
+                        collection_id=f"child:{child_id}:center:{center_id}:temperatures",
+                    )
         self._checkpoint["center_since"] = {
             cid: (d.isoformat() if d is not None else None) for cid, d in center_since.items()
         }
         self._flush_checkpoint()
-        LOG.info("Detected %d center(s) for notices/menus backup.", len(center_since))
+        LOG.info("Detected %d center(s) for notices/menus/schedules backup.", len(center_since))
         for center_id in sorted(center_since):
             root = self.root / "centers" / center_id
             since = center_since[center_id]
             if since is not None:
-                LOG.info("Center %s: backing up notices and menus from %s onward.", center_id, since.isoformat())
+                LOG.info("Center %s: backing up center records from %s onward.", center_id, since.isoformat())
             if options["include_notices"]:
                 self.collection(
                     f"{V1}/centers/{center_id}/notices/", root / "notices", "notices",
@@ -582,4 +798,9 @@ class Archive:
                 self.collection(
                     f"{V1}/centers/{center_id}/menu/", root / "menus", "menus",
                     alternate="menus", since=since, collection_id=f"center:{center_id}:menus",
+                )
+            if options.get("include_schedules"):
+                self.monthly_schedules(
+                    center_id, center_classes.get(center_id), root / "schedules", since,
+                    collection_id=f"center:{center_id}:schedules",
                 )
