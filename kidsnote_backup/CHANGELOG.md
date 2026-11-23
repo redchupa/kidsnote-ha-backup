@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.6
+
+- Kept the manual "지금 백업" button inactive until the first backup completes, and showed an immediate status toast when clicked while a backup is in progress or waiting for the initial run.
+
 ## 0.3.5
 
 - Added detailed per-collection backup logs (start/finish, fetched, saved, unchanged, skipped-older, elapsed time, and detected center count) and live phase/count progress in the web UI header.

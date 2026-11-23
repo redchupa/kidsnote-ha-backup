@@ -22,6 +22,8 @@ let routeController;
 let lastList = "reports";
 let currentSettings = { title: DEFAULT_TITLE, theme: "auto", default_tab: "reports" };
 let backupPollTimer = null;
+let backupWasRunning = false;
+let lastBackupInfo = null;
 let toastTimer = null;
 let hideCompletedSupplies = false;
 
@@ -146,6 +148,7 @@ function setStatus(status, running = false, progress = null) {
 }
 
 function updateBackupButton(info) {
+  lastBackupInfo = info;
   const btn = document.querySelector("#backup-now");
   if (!btn) return;
   if (!info.can_trigger) {
@@ -153,18 +156,24 @@ function updateBackupButton(info) {
     return;
   }
   btn.hidden = false;
+  btn.disabled = false;
   const inCooldown = info.cooldown_until && info.cooldown_until * 1000 > Date.now();
+  const initialPending = !info.status?.last_success_at;
   if (info.running) {
-    btn.disabled = true;
     btn.classList.add("is-busy");
+    btn.setAttribute("aria-disabled", "true");
     btn.textContent = "백업 중...";
   } else if (inCooldown) {
-    btn.disabled = true;
-    btn.classList.remove("is-busy");
+    btn.classList.add("is-busy");
+    btn.setAttribute("aria-disabled", "true");
     btn.textContent = "대기 중";
+  } else if (initialPending) {
+    btn.classList.add("is-busy");
+    btn.setAttribute("aria-disabled", "true");
+    btn.textContent = "초기 백업 대기 중";
   } else {
-    btn.disabled = false;
     btn.classList.remove("is-busy");
+    btn.removeAttribute("aria-disabled");
     btn.textContent = "지금 백업";
   }
   setStatus(info.status, info.running, info.progress);
@@ -174,29 +183,51 @@ async function pollBackupStatus() {
   try {
     const info = await get("backup/status", {});
     updateBackupButton(info);
+    clearTimeout(backupPollTimer);
+    backupPollTimer = null;
     if (info.running) {
-      clearTimeout(backupPollTimer);
+      backupWasRunning = true;
       backupPollTimer = setTimeout(pollBackupStatus, 3000);
-    } else if (backupPollTimer !== null) {
-      clearTimeout(backupPollTimer);
-      backupPollTimer = null;
+    } else if (backupWasRunning) {
+      backupWasRunning = false;
       showToast("백업이 완료되었습니다.");
       render(false);
+    } else if (info.can_trigger && !info.status?.last_success_at) {
+      backupPollTimer = setTimeout(pollBackupStatus, 10000);
     }
   } catch { /* ignore transient status errors */ }
 }
 
 async function triggerManualBackup() {
+  const info = lastBackupInfo;
+  if (info?.running) {
+    const phaseLabel = labels[info.progress?.phase] || "";
+    showToast(phaseLabel
+      ? "현재 " + phaseLabel + " 백업이 진행 중입니다. 완료될 때까지 기다려 주세요."
+      : "현재 백업이 진행 중입니다. 완료될 때까지 기다려 주세요.");
+    return;
+  }
+  if (info?.cooldown_until && info.cooldown_until * 1000 > Date.now()) {
+    const mins = Math.max(1, Math.ceil((info.cooldown_until * 1000 - Date.now()) / 60000));
+    showToast("키즈노트 서버 보호 대기 중입니다. 약 " + mins + "분 후에 다시 시도할 수 있습니다.");
+    return;
+  }
+  if (info && !info.status?.last_success_at) {
+    showToast("첫 백업이 완료된 후 수동 백업을 사용할 수 있습니다.");
+    return;
+  }
   const btn = document.querySelector("#backup-now");
-  btn.disabled = true;
+  btn.classList.add("is-busy");
+  btn.setAttribute("aria-disabled", "true");
   btn.textContent = "요청 중...";
   try {
     const result = await post("backup/trigger", {});
     showToast(result.data.message || (result.ok ? "백업을 시작합니다." : "백업을 시작할 수 없습니다."));
     if (result.ok) {
+      backupWasRunning = true;
+      clearTimeout(backupPollTimer);
       backupPollTimer = setTimeout(pollBackupStatus, 1500);
       btn.textContent = "백업 중...";
-      btn.classList.add("is-busy");
     } else {
       pollBackupStatus();
     }
