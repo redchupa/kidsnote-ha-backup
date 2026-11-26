@@ -5,7 +5,7 @@ const tabs = [...document.querySelectorAll(".tabs a")];
 const labels = {
   reports: "알림장", albums: "앨범", notices: "공지", menus: "식단",
   schedules: "일정표", medications: "투약의뢰서", return_homes: "귀가동의서", temperatures: "체온기록",
-  supplies: "준비물", calendar: "달력",
+  supplies: "준비물", calendar: "달력", stats: "통계분석",
 };
 const catalogKinds = new Set([
   "reports", "albums", "notices", "menus", "schedules", "medications", "return_homes", "temperatures",
@@ -613,7 +613,7 @@ async function renderItem(key, signal) {
   if (signal.aborted) return;
   const kind = key.split("/")[0];
   const prior = lastList.split("?")[0];
-  const listing = prior === kind || ["calendar", "supplies"].includes(prior) ? lastList : kind;
+  const listing = prior === kind || ["calendar", "supplies", "stats"].includes(prior) ? lastList : kind;
   const article = element("article", "entry");
 
   const topbar = element("div", "entry-topbar");
@@ -989,6 +989,284 @@ async function renderCalendar(params, signal) {
   main.replaceChildren(element("h2", "section-heading", labels.calendar), controls, wrapper);
 }
 
+// ------------------------------------------------------------------ Stats (이상징후 참고 지표)
+
+const STAT_PERIOD_LIST = [
+  { id: "30", name: "최근 30일" }, { id: "90", name: "최근 90일" }, { id: "180", name: "최근 6개월" },
+  { id: "365", name: "최근 1년" }, { id: "all", name: "전체" },
+];
+const FLAG_FILTERS = [
+  { id: "", name: "전체" }, { id: "shift", name: "평소와 다른 시간" }, { id: "extended", name: "연장·통합보육" },
+  { id: "after", name: "보육시간 외" }, { id: "before", name: "보육 전" }, { id: "late", name: "늦은 업로드" },
+];
+const PARENT_GUIDE = [
+  {
+    title: "🌅 등원할 때 확인해 주세요",
+    items: [
+      "아이 몸 상태(얼굴·팔·다리 상처, 체온, 기분)를 한 번 살펴보고, 이미 있던 상처는 사진으로 남겨 두세요.",
+      "등원 차량·현관에서 유독 심하게 울거나 특정 선생님을 피하지는 않는지 지켜봐 주세요.",
+      "밤잠·아침 식사·컨디션을 선생님께 짧게 전달하면 이후 알림장 내용과 비교하기 쉬워요.",
+    ],
+  },
+  {
+    title: "🏠 하원 후 집에서 확인해 주세요",
+    items: [
+      "목욕이나 옷 갈아입을 때 등·엉덩이·팔 안쪽·머리처럼 잘 보이지 않는 곳에 멍이나 긁힌 자국이 없는지 확인해 주세요.",
+      "새 상처가 있으면 날짜가 보이게 사진을 찍고, 다음 날 어린이집에 경위를 물어 기록해 두세요.",
+      "갑자기 낮잠·식사를 거부하거나, 깜짝 놀라는 반응, 특정 놀이(때리기·재우기 흉내)를 반복하는지도 살펴봐 주세요.",
+      "알림장 내용(잘 잤어요·잘 먹었어요)과 아이의 실제 컨디션이 자주 어긋나는지 함께 비교해 보세요.",
+    ],
+  },
+];
+const CCTV_GUIDE = [
+  "보관 기간: 어린이집 CCTV 영상은 60일 이상 보관해야 해요. 휴원일을 빼면 실제로 볼 수 있는 기간이 더 짧을 수 있으니, 의심이 들면 바로 요청하세요.",
+  "요청 방법: 어린이집에 「영상정보 열람 요청서」(또는 의사소견서)를 서면으로 내요. 서식은 어린이집이나 보건복지부 「보육사업안내」에서 받을 수 있어요.",
+  "어린이집 회신: 요청을 받은 날부터 10일 안에 열람 장소·일시를 알려줘야 해요. 거부한다면 그 사유를 10일 안에 서면으로 알려야 해요.",
+  "열람할 때: 신분증과 가족관계증명서처럼 보호자임을 확인할 서류를 챙기세요. 비밀유지 서약서를 요청받을 수 있어요.",
+  "거부되면: 정당한 사유 없이 열람을 거부하면 과태료 대상이에요. 관할 시·군·구 보육 담당 부서에 상담·신고할 수 있어요.",
+];
+const REPORT_GUIDE = [
+  "아동학대가 의심되면 112에 신고하세요. 신고자 신분은 보호돼요.",
+  "법령은 바뀔 수 있으니 정확한 내용은 국가법령정보센터의 「영유아보육법」 제15조의4·제15조의5와 시행규칙에서 확인하세요.",
+];
+
+function statTile(label, value, hint) {
+  const node = element("div", "stat-tile");
+  node.append(element("span", "stat-label", label), element("strong", "stat-value", value));
+  if (hint) node.append(element("span", "stat-hint", hint));
+  return node;
+}
+
+function guideList(title, items) {
+  const box = element("div", "guide-block");
+  box.append(element("h4", "", title));
+  const list = element("ul");
+  for (const text of items) list.append(element("li", "", text));
+  box.append(list);
+  return box;
+}
+
+function reportLink(entry, extra) {
+  const row = element("div", "stat-row");
+  const meta = element("div", "supply-meta");
+  if (entry.date) meta.append(time(entry.date));
+  if (extra) meta.append(extra);
+  row.append(meta, link(entry.title || "알림장", "#item/" + entry.key, "supply-link"));
+  return row;
+}
+
+function hourBand(hour) {
+  const minute = hour * 60;
+  if (minute < 450) return "before";
+  if (minute < 540) return "morning";
+  if (minute < 960) return "core";
+  if (minute < 1170) return "extended";
+  return "after";
+}
+
+async function renderStats(params, signal) {
+  const owner = params.get("owner") || "";
+  const days = params.get("days") || "90";
+  let flagFilter = params.get("flag") || "";
+  const data = await get("stats", { ...(owner ? { owner } : {}), days }, signal);
+  if (signal.aborted) return;
+
+  function hashFor(nextOwner, nextDays, nextFlag) {
+    const q = new URLSearchParams();
+    if (nextOwner) q.set("owner", nextOwner);
+    if (nextDays && nextDays !== "90") q.set("days", nextDays);
+    if (nextFlag) q.set("flag", nextFlag);
+    return "stats" + (q.size ? "?" + q : "");
+  }
+  lastList = hashFor(data.owner, data.days, flagFilter);
+
+  const nodes = [element("h2", "section-heading", labels.stats)];
+  nodes.push(element("p", "stat-intro",
+    "알림장이 올라온 시간과 문장 반복을 살펴, 다시 확인해 볼 만한 알림장을 골라 드려요. " +
+    "학대 여부를 판정하는 기능은 아니에요. 평소와 다른 신호를 놓치지 않도록 돕는 참고 지표예요."));
+
+  const controls = element("div", "filters");
+  const ownerSelect = element("select");
+  fillSelect(ownerSelect, data.owners, data.owner);
+  const periodSelect = element("select");
+  fillSelect(periodSelect, STAT_PERIOD_LIST, data.days);
+  const go = () => { location.hash = hashFor(ownerSelect.value, periodSelect.value, flagFilter); };
+  ownerSelect.addEventListener("change", go);
+  periodSelect.addEventListener("change", go);
+  if (data.owners.length > 1) controls.append(field("자녀", ownerSelect));
+  controls.append(field("기간", periodSelect));
+  nodes.push(controls);
+
+  const guide = element("details", "stat-guide");
+  guide.open = true;
+  guide.append(element("summary", "", "👪 부모님 체크 안내 · CCTV 열람 방법"));
+  const guideBody = element("div", "guide-grid");
+  for (const block of PARENT_GUIDE) guideBody.append(guideList(block.title, block.items));
+  guideBody.append(guideList("📹 CCTV 열람 신청 방법과 보관 기간", CCTV_GUIDE));
+  guideBody.append(guideList("☎️ 신고·상담", REPORT_GUIDE));
+  guide.append(guideBody);
+  nodes.push(guide);
+
+  if (!data.total) {
+    nodes.push(message("이 기간에 분석할 알림장이 없습니다."));
+    main.replaceChildren(...nodes);
+    return;
+  }
+
+  const timing = data.timing;
+  const rep = data.repetition;
+  const tiles = element("div", "stat-tiles");
+  tiles.append(
+    statTile("분석한 알림장", data.total + "건", timing.untimed ? "업로드 시각 없음 " + timing.untimed + "건" : ""),
+    statTile("평소 업로드 시각", timing.baseline ? timing.baseline.median : "—",
+      timing.baseline ? "보통 ±" + timing.baseline.spread + "분" : "기준을 잡으려면 8건 이상 필요"),
+    statTile("다시 볼 알림장", timing.flagged_total + "건", "시간대·늦은 업로드 기준"),
+    statTile("반복 문장 비율", Math.round(rep.average_ratio * 100) + "%", "다른 알림장과 똑같은 문장"),
+  );
+  nodes.push(tiles);
+
+  const histSection = element("section", "stat-card");
+  histSection.append(element("h3", "", "⏰ 알림장 업로드 시간 분포"));
+  if (!timing.timed) {
+    histSection.append(message("백업된 알림장에 업로드 시각 정보가 없습니다."));
+  } else {
+    const peak = Math.max(...timing.hist, 1);
+    const chart = element("div", "hour-chart");
+    chart.setAttribute("role", "img");
+    chart.setAttribute("aria-label", "시간대별 업로드 건수: " +
+      timing.hist.map((count, hour) => count ? hour + "시 " + count + "건" : "").filter(Boolean).join(", "));
+    timing.hist.forEach((count, hour) => {
+      const col = element("div", "hour-col band-" + hourBand(hour));
+      col.title = hour + "시대 " + count + "건";
+      const track = element("span", "hour-track");
+      const bar = element("span", "hour-bar");
+      bar.style.height = (count / peak * 100) + "%";
+      track.append(bar);
+      col.append(element("span", "hour-count", count ? String(count) : ""), track,
+        element("span", "hour-label", hour % 3 === 0 ? String(hour) : ""));
+      chart.append(col);
+    });
+    histSection.append(chart);
+    const legend = element("ul", "band-legend");
+    for (const band of timing.bands) {
+      const li = element("li", "band-" + band.id);
+      li.append(element("span", "band-swatch"), document.createTextNode(band.label + " " + band.count + "건"));
+      if (band.check && band.count) li.append(element("span", "kind-badge warn-badge", "확인"));
+      legend.append(li);
+    }
+    histSection.append(legend);
+    histSection.append(element("p", "stat-hint",
+      "업로드 시각은 키즈노트 서버에 기록된 작성 시각이에요. 낮잠 시간(기본보육)에 몰아서 쓰는 경우가 많고, " +
+      "연장·통합보육이나 보육시간 외에 올라온 알림장은 작성 경위를 한 번 더 살펴볼 만해요."));
+  }
+  nodes.push(histSection);
+
+  const flagSection = element("section", "stat-card");
+  flagSection.append(element("h3", "", "🔎 평소와 다른 시간대에 올라온 알림장 (" + timing.flagged_total + "건)"));
+  const chips = element("div", "chip-row");
+  const flagList = element("div");
+  function drawFlags() {
+    chips.replaceChildren(...FLAG_FILTERS.map(option => {
+      const count = option.id ? timing.flagged.filter(f => f.tags.includes(option.id)).length : timing.flagged.length;
+      const chip = button(option.name + " " + count, () => {
+        flagFilter = option.id;
+        lastList = hashFor(data.owner, data.days, flagFilter);
+        history.replaceState(null, "", "#" + lastList);
+        drawFlags();
+      }, "chip" + (flagFilter === option.id ? " is-active" : ""));
+      chip.setAttribute("aria-pressed", String(flagFilter === option.id));
+      return chip;
+    }));
+    const visible = timing.flagged.filter(f => !flagFilter || f.tags.includes(flagFilter));
+    if (!visible.length) {
+      flagList.replaceChildren(message(timing.flagged.length ? "해당하는 알림장이 없습니다." : "평소와 다른 시간대에 올라온 알림장이 없어요."));
+      return;
+    }
+    flagList.replaceChildren(...visible.map(entry => {
+      const row = reportLink(entry, element("span", "kind-badge", "업로드 " + entry.uploaded));
+      if (entry.author) row.firstChild.append(element("span", "", entry.author));
+      const reasons = element("ul", "reason-list");
+      for (const reason of entry.reasons) reasons.append(element("li", "", reason));
+      row.append(reasons);
+      return row;
+    }));
+  }
+  drawFlags();
+  flagSection.append(chips, flagList);
+  if (timing.flagged_total > timing.flagged.length) {
+    flagSection.append(element("p", "stat-hint", "최근 " + timing.flagged.length + "건만 표시했어요."));
+  }
+  nodes.push(flagSection);
+
+  const repSection = element("section", "stat-card");
+  repSection.append(element("h3", "", "📝 동일 문장·유사 알림장 검사"));
+  repSection.append(element("p", "stat-verdict", rep.verdict));
+  const repFacts = element("dl", "facts");
+  for (const [label, value] of [
+    ["반복 문장 비율 (평균)", Math.round(rep.average_ratio * 100) + "%"],
+    ["거의 똑같은 알림장 쌍", rep.pairs_total + "쌍"],
+    ["글 길이 들쭉날쭉함", rep.length_cv === null ? "—" : String(rep.length_cv)],
+    ["문장 길이 들쭉날쭉함", rep.sentence_cv === null ? "—" : String(rep.sentence_cv)],
+  ]) {
+    const fact = element("div", "fact");
+    fact.append(element("dt", "", label), element("dd", "", value));
+    repFacts.append(fact);
+  }
+  repSection.append(repFacts);
+  repSection.append(element("p", "stat-hint",
+    "사람이 쓴 글인지 AI가 쓴 글인지 확실하게 가려낼 방법은 없어요. 대신 같은 문장이 반복되는지, " +
+    "글·문장 길이가 지나치게 일정한지(들쭉날쭉함이 0에 가까울수록 일정함)를 보여 드려요. " +
+    "아이 이름만 바꾼 문장도 같은 문장으로 세요."));
+
+  if (rep.sentences.length) {
+    const box = element("div", "rep-list");
+    box.append(element("h4", "", "자주 반복된 문장"));
+    for (const entry of rep.sentences) {
+      const row = element("div", "stat-row");
+      const meta = element("div", "supply-meta");
+      meta.append(element("span", "kind-badge", entry.count + "회"));
+      for (const ref of entry.reports.slice(0, 5)) meta.append(link(ref.date || "보기", "#item/" + ref.key, "date-link"));
+      row.append(meta, element("p", "rep-text", entry.text));
+      box.append(row);
+    }
+    repSection.append(box);
+  }
+  if (rep.pairs.length) {
+    const box = element("div", "rep-list");
+    box.append(element("h4", "", "내용이 거의 같은 알림장"));
+    for (const pair of rep.pairs) {
+      const row = element("div", "stat-row pair-row");
+      row.append(element("span", "kind-badge", "유사도 " + Math.round(pair.score * 100) + "%"),
+        link((pair.a.date || "") + " " + (pair.a.title || ""), "#item/" + pair.a.key, "supply-link"),
+        element("span", "pair-sep", "↔"),
+        link((pair.b.date || "") + " " + (pair.b.title || ""), "#item/" + pair.b.key, "supply-link"));
+      box.append(row);
+    }
+    repSection.append(box);
+  }
+  if (rep.reports.length) {
+    const box = element("div", "rep-list");
+    box.append(element("h4", "", "반복 문장이 많은 알림장"));
+    for (const entry of rep.reports) {
+      box.append(reportLink(entry, element("span", "kind-badge",
+        "반복 " + Math.round(entry.ratio * 100) + "% · " + entry.sentences + "문장")));
+    }
+    repSection.append(box);
+  }
+  nodes.push(repSection);
+
+  if (data.authors.length) {
+    const authSection = element("section", "stat-card");
+    authSection.append(element("h3", "", "👩‍🏫 작성자별 알림장 수"));
+    const list = element("ul", "author-list");
+    for (const entry of data.authors) list.append(element("li", "", entry.name + " · " + entry.count + "건"));
+    authSection.append(list);
+    nodes.push(authSection);
+  }
+
+  main.replaceChildren(...nodes);
+}
+
 // ------------------------------------------------------------------ Router
 
 async function render(moveFocus = true) {
@@ -1012,6 +1290,7 @@ async function render(moveFocus = true) {
     if (key) await renderItem(key, signal);
     else if (catalogKinds.has(kind)) await renderList(kind, new URLSearchParams(query), signal);
     else if (kind === "supplies") await renderSupplies(signal);
+    else if (kind === "stats") await renderStats(new URLSearchParams(query), signal);
     else await renderCalendar(new URLSearchParams(query), signal);
   } catch (error) {
     if (signal.aborted) return;

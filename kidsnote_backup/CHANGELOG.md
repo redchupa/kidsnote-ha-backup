@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.0
+
+- Added a **통계분석** (statistics) tab to the archive viewer for spotting reports worth a second look:
+  - Upload-time histogram by daycare band (before care, drop-off, core care 09–16, extended/integrated care 16–19:30, after hours), with each child's usual upload time.
+  - A filterable list of reports uploaded far from the usual time, during extended/integrated care or outside care hours, or 2+ days after the date they describe.
+  - Identical-sentence and near-duplicate report detection (child names normalized), with repetition rate and length-uniformity indicators. It does not claim to tell human from AI writing.
+  - Parent guidance: drop-off and after-pickup body/behaviour checks, how to request daycare CCTV viewing (60-day retention, 10-day reply), and where to report suspected abuse (112).
+- `통계분석` can be chosen as the default start tab.
+
 ## 0.4.9
 
 - Restored `interval_hours: 24` and the 7 `include_*: true` backup toggles to default `options` so they visibly show as enabled (ON) in the Home Assistant configuration UI, while keeping genuinely unused optional fields (`session_cookie`, `notify_ha`) folded under optional options.

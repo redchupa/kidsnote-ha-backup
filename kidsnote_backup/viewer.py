@@ -17,6 +17,7 @@ from waitress import create_server
 
 from archive import write_json
 import doc_text
+import stats
 import supplies
 
 WEB = Path(__file__).with_name("web")
@@ -33,9 +34,10 @@ DEFAULT_TITLE = "키즈노트 보관함"
 THEMES = ("auto", "white", "black", "blue", "ivory", "cute", "futuristic")
 TABS = (
     "reports", "albums", "notices", "menus", "supplies", "calendar",
-    "schedules", "medications", "return_homes", "temperatures",
+    "schedules", "medications", "return_homes", "temperatures", "stats",
 )
 MAX_CHECKED_SUPPLIES = 500
+STAT_PERIODS = {"30": 30, "90": 90, "180": 180, "365": 365, "all": None}
 STATE_LOCK = Lock()
 IMAGE = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
          ".gif": "image/gif", ".webp": "image/webp", ".avif": "image/avif"}
@@ -622,6 +624,28 @@ def create_app(root, proxy="172.30.32.2", backup_controller=None):
             "events": events,
             "records": items,
         }
+
+    @app.get("/api/stats")
+    def stats_view():
+        owner = request.args.get("owner", "")
+        period = request.args.get("days", "90")
+        if (owner and not ID.fullmatch(owner)) or period not in STAT_PERIODS:
+            abort(400)
+        by_owner = {}
+        for key, path in records(root, "reports"):
+            by_owner.setdefault(key.split("/")[1], []).append((key, path))
+        owners = [{"id": cid, "name": plain(read_json(root / "children" / cid / "profile.json").get("name"))}
+                  for cid in sorted(by_owner)]
+        if not owner and owners:
+            owner = owners[0]["id"]
+        name = next((entry["name"] for entry in owners if entry["id"] == owner), "")
+        reports = []
+        for key, path in by_owner.get(owner, []):
+            item = read_json(path)
+            if item:
+                reports.append((key, item, body(item), date_of(item)))
+        result = stats.analyze(reports, child_name=name, today=supplies.today_kst(), days=STAT_PERIODS[period])
+        return {"owners": owners, "owner": owner, "days": period, **result}
 
     @app.get("/api/backup/status")
     def backup_status():
