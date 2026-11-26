@@ -89,8 +89,11 @@ def name_variants(name: str):
     return tuple(variants)
 
 
-def analyze(reports, child_name="", today: date | None = None, days: int | None = 90):
-    """``reports``: iterable of (key, meta dict, plain text body, written date)."""
+def analyze(reports, child_name="", today: date | None = None, days: int | None = 90, photo_days=()):
+    """``reports``: iterable of (key, meta dict, plain text body, written date).
+
+    ``photo_days``: dates on which an album or report carried at least one photo.
+    """
     names = name_variants(child_name)
     oldest = (today - timedelta(days=days)) if (today and days) else None
     rows = []
@@ -113,6 +116,8 @@ def analyze(reports, child_name="", today: date | None = None, days: int | None 
         "timing": timing(rows),
         "repetition": repetition(rows, names),
         "authors": authors(rows),
+        "life": life_trend(rows),
+        "photos": photo_gaps(photo_days, today or date.today(), oldest),
     }
 
 
@@ -244,6 +249,78 @@ def repetition(rows, names):
         } for score, i, j in pairs[:20]],
         "pairs_total": len(pairs),
     }
+
+
+# Life-record values that mean "not a good day" for that category.
+LIFE_WATCH = {
+    "mood_status": ("기분", {"bad"}),
+    "health_status": ("건강", {"bad", "sick"}),
+    "meal_status": ("식사", {"less", "none", "bad"}),
+    "sleep_hour": ("낮잠", {"no_sleep", "sleep_hardly", "slp_bad", "under_30m"}),
+    "bowel_status": ("배변", {"diarrhea", "watery"}),
+    "temperature_status": ("체온", {"high", "slight"}),
+}
+LIFE_MIN_WEEKS = 4      # weeks of history before a week can stand out
+PHOTO_MIN_GAP = 5       # weekdays without any photo before a gap is shown
+
+
+def week_start(day: date) -> date:
+    return day - timedelta(days=day.weekday())
+
+
+def life_trend(rows):
+    """Weekly count of "not a good day" life records, flagging weeks well above usual."""
+    weeks = defaultdict(lambda: {"reports": 0, **{field: 0 for field in LIFE_WATCH}})
+    for row in rows:
+        if not row["date"]:
+            continue
+        week = weeks[week_start(row["date"])]
+        week["reports"] += 1
+        for field, (_, bad) in LIFE_WATCH.items():
+            if str(row["item"].get(field, "")) in bad:
+                week[field] += 1
+    ordered = sorted(weeks.items())
+    totals = [sum(entry[field] for field in LIFE_WATCH) for _, entry in ordered]
+    usual = statistics.mean(totals) if totals else 0
+    result = []
+    for (start, entry), total in zip(ordered, totals):
+        details = [f"{LIFE_WATCH[field][0]} {entry[field]}회" for field in LIFE_WATCH if entry[field]]
+        rising = len(ordered) >= LIFE_MIN_WEEKS and total >= 2 and total >= 2 * max(usual, 0.5)
+        result.append({"week": start.isoformat(), "reports": entry["reports"], "total": total,
+                       "details": details, "rising": rising})
+    return {
+        "labels": [label for label, _ in LIFE_WATCH.values()],
+        "usual": round(usual, 1),
+        "weeks": result[-26:],
+        "rising": [week for week in result if week["rising"]][-10:],
+        "recorded": sum(1 for row in rows if any(row["item"].get(field) for field in LIFE_WATCH)),
+    }
+
+
+def weekdays_between(first: date, last: date) -> int:
+    """Weekdays strictly between two dates."""
+    count, day = 0, first + timedelta(days=1)
+    while day < last:
+        count += day.weekday() < 5
+        day += timedelta(days=1)
+    return count
+
+
+def photo_gaps(photo_days, today: date, oldest: date | None):
+    """Stretches of weekdays with no photo in albums or reports."""
+    days = sorted({day for day in photo_days if (not oldest or day >= oldest) and day <= today})
+    if not days:
+        return {"days": 0, "gaps": [], "usual": None, "last": ""}
+    spans = [(days[i], days[i + 1]) for i in range(len(days) - 1)] + [(days[-1], today + timedelta(days=1))]
+    gaps = [(weekdays_between(a, b), a, b) for a, b in spans]
+    usual = statistics.median(gap for gap, _, _ in gaps[:-1]) if len(gaps) > 1 else 0
+    limit = max(PHOTO_MIN_GAP, 3 * usual)
+    shown = [{
+        "after": a.isoformat(),
+        "until": b.isoformat() if b <= today else "",
+        "weekdays": gap,
+    } for gap, a, b in gaps if gap >= limit]
+    return {"days": len(days), "gaps": shown[::-1][:20], "usual": usual, "last": days[-1].isoformat()}
 
 
 def authors(rows):

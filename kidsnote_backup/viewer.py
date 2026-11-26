@@ -6,7 +6,7 @@ import re
 import tempfile
 import zipfile
 from dataclasses import asdict
-from datetime import timedelta
+from datetime import date, timedelta
 from functools import lru_cache
 from html.parser import HTMLParser
 from pathlib import Path
@@ -38,6 +38,14 @@ TABS = (
 )
 MAX_CHECKED_SUPPLIES = 500
 STAT_PERIODS = {"30": 30, "90": 90, "180": 180, "365": 365, "all": None}
+MAX_REVIEWED = 2000
+MAX_NOTES = 3000
+MAX_MEMO = 1000
+DAY = re.compile(r"[0-9]{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12][0-9]|3[01])")
+HOME_FLAGS = {
+    "bruise": "멍·상처", "mood": "기분 변화", "sleep": "잠 변화", "meal": "식사 변화",
+    "fear": "무서워함·놀람", "avoid": "등원 거부", "sick": "아픔",
+}
 STATE_LOCK = Lock()
 IMAGE = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
          ".gif": "image/gif", ".webp": "image/webp", ".avif": "image/avif"}
@@ -350,6 +358,88 @@ def update_checked_supplies(root, item_id, checked):
     return items
 
 
+def read_reviewed(root):
+    items = read_json(root / "reviewed_reports.json").get("reviewed")
+    if not isinstance(items, list):
+        return []
+    return [entry for entry in items if isinstance(entry, str) and 0 < len(entry) <= 100]
+
+
+def update_reviewed(root, key, reviewed):
+    with STATE_LOCK:
+        items = [entry for entry in read_reviewed(root) if entry != key]
+        if reviewed:
+            items = (items + [key])[-MAX_REVIEWED:]
+        write_json(root / "reviewed_reports.json", {"reviewed": items})
+    return items
+
+
+def read_notes(root):
+    raw = read_json(root / "home_notes.json").get("notes")
+    notes = {}
+    if not isinstance(raw, dict):
+        return notes
+    for owner, days in raw.items():
+        if not (isinstance(owner, str) and ID.fullmatch(owner) and isinstance(days, dict)):
+            continue
+        for day, note in days.items():
+            if not (isinstance(day, str) and DAY.fullmatch(day) and isinstance(note, dict)):
+                continue
+            flags = [flag for flag in note.get("flags") or [] if flag in HOME_FLAGS]
+            memo = note.get("memo") if isinstance(note.get("memo"), str) else ""
+            if flags or memo:
+                notes.setdefault(owner, {})[day] = {"flags": flags, "memo": memo[:MAX_MEMO]}
+    return notes
+
+
+def note_view(day, note):
+    return {"date": day, "flags": note["flags"], "labels": [HOME_FLAGS[flag] for flag in note["flags"]],
+            "memo": note["memo"]}
+
+
+def save_note(root, payload):
+    if not isinstance(payload, dict):
+        abort(400)
+    owner, day = payload.get("owner"), payload.get("date")
+    flags, memo = payload.get("flags", []), payload.get("memo", "")
+    if (not isinstance(owner, str) or not ID.fullmatch(owner) or not isinstance(day, str)
+            or not DAY.fullmatch(day) or not isinstance(flags, list) or not isinstance(memo, str)
+            or any(flag not in HOME_FLAGS for flag in flags) or len(memo) > MAX_MEMO):
+        abort(400)
+    try:
+        date.fromisoformat(day)
+    except ValueError:
+        abort(400)
+    memo = memo.strip()
+    with STATE_LOCK:
+        notes = read_notes(root)
+        days = notes.setdefault(owner, {})
+        if flags or memo:
+            days[day] = {"flags": sorted(set(flags), key=list(HOME_FLAGS).index), "memo": memo}
+        else:
+            days.pop(day, None)
+        if sum(len(entries) for entries in notes.values()) > MAX_NOTES:
+            abort(413)
+        write_json(root / "home_notes.json", {"notes": notes})
+    return notes.get(owner, {})
+
+
+def photo_days(root, owner):
+    days = set()
+    for kind in ("albums", "reports"):
+        for key, path in records(root, kind):
+            if key.split("/")[1] != owner:
+                continue
+            try:
+                stat = path.stat()
+            except OSError:
+                continue
+            record = summary(path, stat.st_mtime_ns, stat.st_size)
+            if record and record["cover"] and record["date"]:
+                days.add(date.fromisoformat(record["date"]))
+    return days
+
+
 def safe_zip_name(label, fallback, used):
     cleaned = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", Path(label or fallback).name).strip(" .") or fallback
     stem, suffix = Path(cleaned).stem or "file", Path(cleaned).suffix
@@ -531,7 +621,12 @@ def create_app(root, proxy="172.30.32.2", backup_controller=None):
         day = date_of(data)
         kind = key.split("/")[0]
         fields = item_fields(kind, data)
+        home_note = None
+        if kind == "reports" and day:
+            note = read_notes(root).get(key.split("/")[1], {}).get(day.isoformat())
+            home_note = note_view(day.isoformat(), note) if note else None
         return {
+            "home_note": home_note,
             "title": plain(data.get("title")),
             "body": body(data),
             "date": day.isoformat() if day else "",
@@ -644,8 +739,29 @@ def create_app(root, proxy="172.30.32.2", backup_controller=None):
             item = read_json(path)
             if item:
                 reports.append((key, item, body(item), date_of(item)))
-        result = stats.analyze(reports, child_name=name, today=supplies.today_kst(), days=STAT_PERIODS[period])
-        return {"owners": owners, "owner": owner, "days": period, **result}
+        result = stats.analyze(reports, child_name=name, today=supplies.today_kst(), days=STAT_PERIODS[period],
+                               photo_days=photo_days(root, owner) if owner else ())
+        notes = read_notes(root).get(owner, {})
+        return {"owners": owners, "owner": owner, "days": period, **result,
+                "reviewed": read_reviewed(root),
+                "home_flags": [{"id": flag, "label": label} for flag, label in HOME_FLAGS.items()],
+                "notes": [note_view(day, note) for day, note in sorted(notes.items(), reverse=True)[:60]]}
+
+    @app.post("/api/stats/review")
+    def stats_review():
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict):
+            abort(400)
+        key, reviewed = payload.get("key"), payload.get("reviewed")
+        if not isinstance(key, str) or not key.startswith("reports/") or meta_path(root, key) is None                 or type(reviewed) is not bool:
+            abort(400)
+        return {"reviewed": update_reviewed(root, key, reviewed)}
+
+    @app.post("/api/home-notes")
+    def home_notes():
+        payload = request.get_json(silent=True)
+        notes = save_note(root, payload)
+        return {"notes": [note_view(day, note) for day, note in sorted(notes.items(), reverse=True)[:60]]}
 
     @app.get("/api/backup/status")
     def backup_status():

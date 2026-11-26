@@ -34,6 +34,7 @@ let backupWasRunning = false;
 let lastBackupInfo = null;
 let toastTimer = null;
 let hideCompletedSupplies = false;
+let hideReviewedFlags = false;
 
 // Lightbox state
 let lightboxItems = [];
@@ -635,6 +636,14 @@ async function renderItem(key, signal) {
   if (data.author) heading.append(element("p", "", data.author));
   article.append(heading);
   if (data.body) article.append(element("p", "prose", data.body));
+  if (data.home_note) {
+    const note = element("div", "home-note");
+    const meta = element("div", "supply-meta");
+    for (const label of data.home_note.labels) meta.append(element("span", "kind-badge warn-badge", label));
+    note.append(meta);
+    if (data.home_note.memo) note.append(element("p", "prose", data.home_note.memo));
+    article.append(section("🏠 이날 집에서 남긴 기록", note));
+  }
   if (data.fields.length) {
     const fields = element("dl", "facts");
     for (const info of data.fields) {
@@ -1064,6 +1073,170 @@ function hourBand(hour) {
   return "after";
 }
 
+function todayKst() {
+  return new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+}
+
+function homeNotesSection(data) {
+  const box = element("section", "stat-card");
+  box.append(element("h3", "", "🏠 하원 후 기록"));
+  box.append(element("p", "stat-hint",
+    "집에서 확인한 내용을 날짜별로 남겨 두세요. 같은 날 알림장을 열면 이 기록이 함께 보여서 비교하기 쉬워요."));
+  const flags = (data.home_flags || []).map(flag => [flag.id, flag.label]);
+  let notes = data.notes || [];
+
+  const form = element("form", "note-form");
+  const dateInput = element("input");
+  dateInput.type = "date";
+  dateInput.max = todayKst();
+  dateInput.value = todayKst();
+  const flagBoxes = element("div", "chip-row note-flags");
+  const boxes = new Map();
+  for (const [id, label] of flags) {
+    const chip = element("label", "chip check-chip");
+    const input = element("input");
+    input.type = "checkbox";
+    input.value = id;
+    chip.append(input, element("span", "", label));
+    boxes.set(id, input);
+    flagBoxes.append(chip);
+  }
+  const memo = element("textarea");
+  memo.rows = 3;
+  memo.maxLength = 1000;
+  memo.placeholder = "예: 왼쪽 팔 안쪽에 작은 멍. 물어보니 친구랑 부딪혔다고 함. 내일 선생님께 여쭤보기.";
+  const save = element("button", "primary-btn", "저장");
+  save.type = "submit";
+  const remove = button("삭제", () => submit(true), "secondary-btn");
+  const actions = element("div", "note-actions");
+  actions.append(save, remove);
+  form.append(field("날짜", dateInput), flagBoxes, field("메모", memo), actions);
+
+  function load(day) {
+    const note = notes.find(entry => entry.date === day);
+    for (const [id, input] of boxes) input.checked = Boolean(note && note.flags.includes(id));
+    memo.value = note ? note.memo : "";
+    remove.hidden = !note;
+  }
+  dateInput.addEventListener("change", () => load(dateInput.value));
+
+  async function submit(clear) {
+    if (!dateInput.value) return;
+    const payload = {
+      owner: data.owner, date: dateInput.value,
+      flags: clear ? [] : [...boxes].filter(([, input]) => input.checked).map(([id]) => id),
+      memo: clear ? "" : memo.value,
+    };
+    save.disabled = true;
+    try {
+      const res = await post("home-notes", payload);
+      if (!res.ok) throw new Error("save failed");
+      notes = res.data.notes;
+      showToast(clear ? "기록을 삭제했어요." : "기록을 저장했어요.");
+      load(dateInput.value);
+      drawList();
+    } catch {
+      showToast("기록을 저장하지 못했습니다.");
+    } finally {
+      save.disabled = false;
+    }
+  }
+  form.addEventListener("submit", event => { event.preventDefault(); submit(false); });
+
+  const list = element("div", "note-list");
+  function drawList() {
+    if (!notes.length) {
+      list.replaceChildren(element("p", "stat-hint", "아직 남긴 기록이 없어요."));
+      return;
+    }
+    list.replaceChildren(element("h4", "", "최근 기록"), ...notes.slice(0, 20).map(note => {
+      const row = element("div", "stat-row");
+      const meta = element("div", "supply-meta");
+      meta.append(time(note.date));
+      for (const label of note.labels) meta.append(element("span", "kind-badge warn-badge", label));
+      meta.append(button("수정", () => {
+        dateInput.value = note.date;
+        load(note.date);
+        form.scrollIntoView({ behavior: "smooth", block: "center" });
+      }, "chip"));
+      row.append(meta);
+      if (note.memo) row.append(element("p", "rep-text", note.memo));
+      return row;
+    }));
+  }
+  load(dateInput.value);
+  drawList();
+  box.append(form, list);
+  return box;
+}
+
+function lifeSection(life) {
+  const box = element("section", "stat-card");
+  box.append(element("h3", "", "🌡️ 생활기록 변화"));
+  box.append(element("p", "stat-hint",
+    "알림장 생활기록에서 " + life.labels.join("·") + "이(가) 좋지 않았던 날을 주별로 셌어요. " +
+    "평소(주 " + life.usual + "회)보다 두 배 이상 많은 주를 표시해요."));
+  if (!life.recorded) {
+    box.append(message("이 기간 알림장에 생활기록(기분·식사·수면 등)이 없어요."));
+    return box;
+  }
+  const peak = Math.max(...life.weeks.map(week => week.total), 1);
+  const chart = element("div", "week-chart");
+  chart.setAttribute("role", "img");
+  chart.setAttribute("aria-label", "주별 좋지 않았던 기록 수: " +
+    life.weeks.map(week => week.week + " " + week.total + "회").join(", "));
+  for (const week of life.weeks) {
+    const col = element("div", "week-col" + (week.rising ? " is-rising" : ""));
+    col.title = week.week + " 주: " + (week.details.join(", ") || "없음") + " (알림장 " + week.reports + "건)";
+    const track = element("span", "hour-track");
+    const bar = element("span", "hour-bar");
+    bar.style.height = (week.total / peak * 100) + "%";
+    track.append(bar);
+    col.append(element("span", "hour-count", week.total ? String(week.total) : ""), track,
+      element("span", "hour-label", week.week.slice(5).replace("-", "/")));
+    chart.append(col);
+  }
+  box.append(chart);
+  if (life.rising.length) {
+    box.append(element("h4", "", "평소보다 많았던 주"));
+    for (const week of [...life.rising].reverse()) {
+      const row = element("div", "stat-row");
+      const meta = element("div", "supply-meta");
+      meta.append(element("span", "kind-badge warn-badge", week.week + " 주"), element("span", "", "알림장 " + week.reports + "건"));
+      row.append(meta, element("p", "rep-text", week.details.join(", ")));
+      box.append(row);
+    }
+  } else {
+    box.append(element("p", "stat-verdict", "평소보다 눈에 띄게 많았던 주는 없어요."));
+  }
+  return box;
+}
+
+function photoSection(photos) {
+  const box = element("section", "stat-card");
+  box.append(element("h3", "", "📷 사진 공백"));
+  if (!photos.days) {
+    box.append(message("이 기간에 사진이 올라온 날이 없어요."));
+    return box;
+  }
+  box.append(element("p", "stat-hint",
+    "앨범이나 알림장에 사진이 올라온 날은 " + photos.days + "일이에요(마지막 " + photos.last + "). " +
+    "평일 기준으로 사진이 평소보다 오래 올라오지 않은 기간을 보여 드려요. 방학·휴원·결석일도 포함될 수 있어요."));
+  if (!photos.gaps.length) {
+    box.append(element("p", "stat-verdict", "사진이 오래 비어 있던 기간은 없어요."));
+    return box;
+  }
+  for (const gap of photos.gaps) {
+    const row = element("div", "stat-row");
+    const meta = element("div", "supply-meta");
+    meta.append(element("span", "kind-badge warn-badge", "평일 " + gap.weekdays + "일"));
+    meta.append(document.createTextNode(gap.after + " 이후 " + (gap.until ? gap.until + "까지" : "지금까지") + " 사진 없음"));
+    row.append(meta);
+    box.append(row);
+  }
+  return box;
+}
+
 async function renderStats(params, signal) {
   const owner = params.get("owner") || "";
   const days = params.get("days") || "90";
@@ -1106,6 +1279,7 @@ async function renderStats(params, signal) {
   guideBody.append(guideList("☎️ 신고·상담", REPORT_GUIDE));
   guide.append(guideBody);
   nodes.push(guide);
+  if (data.owner) nodes.push(homeNotesSection(data));
 
   if (!data.total) {
     nodes.push(message("이 기간에 분석할 알림장이 없습니다."));
@@ -1163,9 +1337,46 @@ async function renderStats(params, signal) {
 
   const flagSection = element("section", "stat-card");
   flagSection.append(element("h3", "", "🔎 평소와 다른 시간대에 올라온 알림장 (" + timing.flagged_total + "건)"));
+  flagSection.append(element("p", "stat-hint",
+    "선생님 일정에 따라 업로드 시간은 매번 달라질 수 있어요. 알림장을 열어 보고 괜찮으면 '확인함'에 체크해 두세요. " +
+    "'확인한 항목 숨기기'를 켜면 아직 안 본 것만 남아요."));
+  const reviewed = new Set(data.reviewed || []);
   const chips = element("div", "chip-row");
   const flagList = element("div");
+  const reviewToolbar = element("div", "supplies-toolbar");
+  const reviewSummary = element("span", "supplies-summary");
+  const hideToggle = element("label", "toggle-label");
+  const hideBox = element("input");
+  hideBox.type = "checkbox";
+  hideBox.checked = hideReviewedFlags;
+  hideBox.addEventListener("change", () => { hideReviewedFlags = hideBox.checked; drawFlags(); });
+  hideToggle.append(hideBox, element("span", "", "확인한 항목 숨기기"));
+  reviewToolbar.append(reviewSummary, hideToggle);
+  function reviewBox(entry) {
+    const label = element("label", "review-check");
+    const box = element("input");
+    box.type = "checkbox";
+    box.checked = reviewed.has(entry.key);
+    box.addEventListener("change", async () => {
+      const next = box.checked;
+      if (next) reviewed.add(entry.key); else reviewed.delete(entry.key);
+      drawFlags();
+      try {
+        const res = await post("stats/review", { key: entry.key, reviewed: next });
+        if (!res.ok) throw new Error("save failed");
+      } catch {
+        if (next) reviewed.delete(entry.key); else reviewed.add(entry.key);
+        drawFlags();
+        showToast("확인 상태를 저장하지 못했습니다.");
+      }
+    });
+    label.append(box, element("span", "", "확인함"));
+    return label;
+  }
   function drawFlags() {
+    const open = timing.flagged.filter(f => !reviewed.has(f.key)).length;
+    reviewSummary.replaceChildren(document.createTextNode("아직 확인 안 함 "), element("strong", "", open + "건"),
+      document.createTextNode(" / 전체 " + timing.flagged.length + "건"));
     chips.replaceChildren(...FLAG_FILTERS.map(option => {
       const count = option.id ? timing.flagged.filter(f => f.tags.includes(option.id)).length : timing.flagged.length;
       const chip = button(option.name + " " + count, () => {
@@ -1177,14 +1388,20 @@ async function renderStats(params, signal) {
       chip.setAttribute("aria-pressed", String(flagFilter === option.id));
       return chip;
     }));
-    const visible = timing.flagged.filter(f => !flagFilter || f.tags.includes(flagFilter));
+    const visible = timing.flagged.filter(f =>
+      (!flagFilter || f.tags.includes(flagFilter)) && !(hideReviewedFlags && reviewed.has(f.key)));
     if (!visible.length) {
-      flagList.replaceChildren(message(timing.flagged.length ? "해당하는 알림장이 없습니다." : "평소와 다른 시간대에 올라온 알림장이 없어요."));
+      flagList.replaceChildren(message(
+        !timing.flagged.length ? "평소와 다른 시간대에 올라온 알림장이 없어요."
+          : hideReviewedFlags && !open ? "모두 확인했어요. 👍" : "해당하는 알림장이 없습니다."));
       return;
     }
     flagList.replaceChildren(...visible.map(entry => {
       const row = reportLink(entry, element("span", "kind-badge", "업로드 " + entry.uploaded));
+      row.classList.add("flag-row");
+      if (reviewed.has(entry.key)) row.classList.add("is-reviewed");
       if (entry.author) row.firstChild.append(element("span", "", entry.author));
+      row.firstChild.append(reviewBox(entry));
       const reasons = element("ul", "reason-list");
       for (const reason of entry.reasons) reasons.append(element("li", "", reason));
       row.append(reasons);
@@ -1192,11 +1409,12 @@ async function renderStats(params, signal) {
     }));
   }
   drawFlags();
-  flagSection.append(chips, flagList);
+  flagSection.append(reviewToolbar, chips, flagList);
   if (timing.flagged_total > timing.flagged.length) {
     flagSection.append(element("p", "stat-hint", "최근 " + timing.flagged.length + "건만 표시했어요."));
   }
   nodes.push(flagSection);
+  nodes.push(lifeSection(data.life), photoSection(data.photos));
 
   const repSection = element("section", "stat-card");
   repSection.append(element("h3", "", "📝 동일 문장·유사 알림장 검사"));

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.1
+
+- 통계분석 tab additions:
+  - **생활기록 변화**: weekly count of not-so-good life records (mood, health, meals, naps, bowel, temperature), highlighting weeks at least twice the usual.
+  - **사진 공백**: weekday stretches with no photo in albums or reports, longer than usual (at least 5 weekdays).
+  - **하원 후 기록**: dated home notes with quick checks (bruise/injury, mood, sleep, meals, fear, refusing drop-off, sick) and a memo; a report shows the same day's home note.
+  - **확인함** checks on reports flagged for upload time, with a toggle to hide reviewed ones (no notifications).
+- Fixed the 0.5.0 container build by including `stats.py` in the Docker build context.
+
 ## 0.5.0
 
 - Added a **통계분석** (statistics) tab to the archive viewer for spotting reports worth a second look:

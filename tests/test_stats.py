@@ -79,6 +79,34 @@ class StatsTest(unittest.TestCase):
         self.assertIsNone(result["timing"]["baseline"])
 
 
+class LifeAndPhotoTest(unittest.TestCase):
+    def test_life_trend_flags_bad_week(self):
+        today = date(2026, 11, 26)
+        rows = []
+        for offset in range(42):
+            day = today - timedelta(days=offset)
+            if day.weekday() >= 5:
+                continue
+            item = report(day, 14, 0, "기록")
+            item["mood_status"] = "bad" if offset < 5 else "good"
+            item["meal_status"] = "less" if offset < 3 else "fixed"
+            rows.append((f"reports/1/{offset}", item, "기록", day))
+        life = stats.analyze(rows, today=today, days=90)["life"]
+        self.assertEqual(life["recorded"], len(rows))
+        self.assertTrue(life["rising"])
+        self.assertTrue(any("기분" in detail for detail in life["rising"][-1]["details"]))
+        self.assertFalse(life["weeks"][0]["rising"])
+
+    def test_photo_gaps(self):
+        today = date(2026, 11, 26)          # Thursday
+        days = [today - timedelta(days=n) for n in range(30, 60) if (today - timedelta(days=n)).weekday() < 5]
+        days += [date(2026, 11, 2)]          # then one more photo, then nothing
+        photos = stats.photo_gaps(days, today, None)
+        self.assertEqual(photos["last"], "2026-11-02")
+        self.assertEqual(photos["gaps"][0], {"after": "2026-11-02", "until": "", "weekdays": 18})
+        self.assertEqual(stats.weekdays_between(date(2026, 11, 20), date(2026, 11, 24)), 1)
+
+
 class StatsEndpointTest(unittest.TestCase):
     def test_stats_endpoint(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -98,6 +126,32 @@ class StatsEndpointTest(unittest.TestCase):
             self.assertEqual(data["timing"]["flagged"][0]["tags"], ["after"])
             self.assertEqual(client.get("/api/stats?days=7", **kwargs).status_code, 400)
             self.assertEqual(client.get("/api/stats?owner=x", **kwargs).status_code, 400)
+
+            # 확인함 check
+            res = client.post("/api/stats/review", json={"key": "reports/1/5", "reviewed": True}, **kwargs)
+            self.assertEqual(res.json["reviewed"], ["reports/1/5"])
+            self.assertEqual(client.get("/api/stats?days=30", **kwargs).json["reviewed"], ["reports/1/5"])
+            self.assertEqual(client.post("/api/stats/review", json={"key": "../x", "reviewed": True},
+                                         **kwargs).status_code, 400)
+            res = client.post("/api/stats/review", json={"key": "reports/1/5", "reviewed": False}, **kwargs)
+            self.assertEqual(res.json["reviewed"], [])
+
+            # 하원 후 기록
+            day = today.isoformat()
+            res = client.post("/api/home-notes", json={"owner": "1", "date": day, "flags": ["mood", "bruise"],
+                                                       "memo": " 팔에 멍 "}, **kwargs)
+            self.assertEqual(res.json["notes"], [{"date": day, "flags": ["bruise", "mood"],
+                                                  "labels": ["멍·상처", "기분 변화"], "memo": "팔에 멍"}])
+            detail = client.get("/api/item?key=reports/1/5", **kwargs).json
+            self.assertEqual(detail["home_note"]["memo"], "팔에 멍")
+            self.assertEqual(client.get("/api/stats?days=30", **kwargs).json["notes"][0]["date"], day)
+            for bad in ({"owner": "1", "date": "2026-02-30", "flags": []},
+                        {"owner": "1", "date": day, "flags": ["nope"]},
+                        {"owner": "1", "date": day, "memo": "가" * 1001}):
+                self.assertEqual(client.post("/api/home-notes", json=bad, **kwargs).status_code, 400)
+            res = client.post("/api/home-notes", json={"owner": "1", "date": day}, **kwargs)
+            self.assertEqual(res.json["notes"], [])
+            self.assertIsNone(client.get("/api/item?key=reports/1/5", **kwargs).json["home_note"])
 
 
 if __name__ == "__main__":
