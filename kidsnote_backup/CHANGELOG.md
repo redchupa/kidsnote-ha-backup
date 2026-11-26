@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.2
+
+- Reorganized the 통계분석 tab in the order parents use it: summary cards (tap to jump), 하원 후 기록, 아이 컨디션 변화, 한 번 더 살펴볼 알림장 (upload-time chart folded inside), 사진이 뜸했던 기간, 알림장 문장 살펴보기 (folded).
+- Moved the guide (how to use the tab, drop-off/pickup checks, talking with teachers, CCTV viewing, getting help) to the bottom, folded by default, with polished wording.
+- Softer, teacher-respectful wording throughout; per-teacher report counts and author names are no longer shown or returned.
+- Reviewed reports are hidden by default (toggle to show them); deleting a home note asks for a second tap instead of a browser dialog that some app webviews block.
+- "전체" now analyzes every report (only near-duplicate comparison is limited to the latest 400), pair comparison is about 4x faster, and results are cached until backup files change.
+
 ## 0.5.1
 
 - 통계분석 tab additions:

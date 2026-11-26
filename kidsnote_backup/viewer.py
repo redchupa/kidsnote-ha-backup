@@ -41,12 +41,14 @@ STAT_PERIODS = {"30": 30, "90": 90, "180": 180, "365": 365, "all": None}
 MAX_REVIEWED = 2000
 MAX_NOTES = 3000
 MAX_MEMO = 1000
+MAX_NOTE_LIST = 200
 DAY = re.compile(r"[0-9]{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12][0-9]|3[01])")
 HOME_FLAGS = {
     "bruise": "멍·상처", "mood": "기분 변화", "sleep": "잠 변화", "meal": "식사 변화",
     "fear": "무서워함·놀람", "avoid": "등원 거부", "sick": "아픔",
 }
 STATE_LOCK = Lock()
+STATS_LOCK = Lock()
 IMAGE = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
          ".gif": "image/gif", ".webp": "image/webp", ".avif": "image/avif"}
 VIDEO = {".mp4": "video/mp4", ".mov": "video/quicktime", ".webm": "video/webm", ".m4v": "video/mp4"}
@@ -527,6 +529,7 @@ def create_app(root, proxy="172.30.32.2", backup_controller=None):
     app = Flask(__name__, static_folder=None)
     app.json.ensure_ascii = False
     app.config["MAX_CONTENT_LENGTH"] = 16 * 1024
+    stats_cache = {}
 
     @app.before_request
     def ingress_only():
@@ -734,18 +737,36 @@ def create_app(root, proxy="172.30.32.2", backup_controller=None):
         if not owner and owners:
             owner = owners[0]["id"]
         name = next((entry["name"] for entry in owners if entry["id"] == owner), "")
-        reports = []
-        for key, path in by_owner.get(owner, []):
-            item = read_json(path)
-            if item:
-                reports.append((key, item, body(item), date_of(item)))
-        result = stats.analyze(reports, child_name=name, today=supplies.today_kst(), days=STAT_PERIODS[period],
-                               photo_days=photo_days(root, owner) if owner else ())
+        today = supplies.today_kst()
+        files = []
+        for kind in ("reports", "albums"):
+            for key, path in (by_owner.get(owner, []) if kind == "reports" else records(root, kind)):
+                if key.split("/")[1] == owner:
+                    try:
+                        stat = path.stat()
+                    except OSError:
+                        continue
+                    files.append((key, stat.st_mtime_ns, stat.st_size))
+        signature = (owner, period, name, today, tuple(sorted(files)))
+        with STATS_LOCK:
+            result = stats_cache.get(signature)
+        if result is None:
+            reports = []
+            for key, path in by_owner.get(owner, []):
+                item = read_json(path)
+                if item:
+                    reports.append((key, item, body(item), date_of(item)))
+            result = stats.analyze(reports, child_name=name, today=today, days=STAT_PERIODS[period],
+                                   photo_days=photo_days(root, owner) if owner else ())
+            with STATS_LOCK:
+                if len(stats_cache) >= 8:
+                    stats_cache.pop(next(iter(stats_cache)))
+                stats_cache[signature] = result
         notes = read_notes(root).get(owner, {})
         return {"owners": owners, "owner": owner, "days": period, **result,
                 "reviewed": read_reviewed(root),
                 "home_flags": [{"id": flag, "label": label} for flag, label in HOME_FLAGS.items()],
-                "notes": [note_view(day, note) for day, note in sorted(notes.items(), reverse=True)[:60]]}
+                "notes": [note_view(day, note) for day, note in sorted(notes.items(), reverse=True)[:MAX_NOTE_LIST]]}
 
     @app.post("/api/stats/review")
     def stats_review():
@@ -761,7 +782,7 @@ def create_app(root, proxy="172.30.32.2", backup_controller=None):
     def home_notes():
         payload = request.get_json(silent=True)
         notes = save_note(root, payload)
-        return {"notes": [note_view(day, note) for day, note in sorted(notes.items(), reverse=True)[:60]]}
+        return {"notes": [note_view(day, note) for day, note in sorted(notes.items(), reverse=True)[:MAX_NOTE_LIST]]}
 
     @app.get("/api/backup/status")
     def backup_status():

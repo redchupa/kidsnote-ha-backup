@@ -1,4 +1,5 @@
 import json
+import os
 import tempfile
 import unittest
 from datetime import date, timedelta
@@ -71,6 +72,17 @@ class StatsTest(unittest.TestCase):
         keys = {(p["a"]["key"], p["b"]["key"]) for p in result["repetition"]["pairs"]}
         self.assertTrue({("reports/1/960", "reports/1/961"), ("reports/1/961", "reports/1/960")} & keys)
 
+    def test_all_period_is_not_capped_and_has_no_teacher_ranking(self):
+        rows = []
+        for offset in range(stats.MAX_COMPARE + 50):
+            day = self.today - timedelta(days=offset)
+            rows.append((f"reports/1/{offset}", report(day, 14, 0, f"{offset}번째 날"), f"{offset}번째 날", day))
+        result = stats.analyze(rows, today=self.today, days=None)
+        self.assertEqual(result["total"], stats.MAX_COMPARE + 50)
+        self.assertEqual(result["timing"]["timed"], stats.MAX_COMPARE + 50)
+        self.assertNotIn("authors", result)
+        self.assertTrue(all("author" not in entry for entry in result["timing"]["flagged"]))
+
     def test_missing_upload_time(self):
         item = {"date_written": "2026-11-20", "content": "시간 정보 없음", "author": {"type": "teacher"}}
         result = stats.analyze([("reports/1/1", item, "시간 정보 없음", date(2026, 11, 20))],
@@ -126,6 +138,11 @@ class StatsEndpointTest(unittest.TestCase):
             self.assertEqual(data["timing"]["flagged"][0]["tags"], ["after"])
             self.assertEqual(client.get("/api/stats?days=7", **kwargs).status_code, 400)
             self.assertEqual(client.get("/api/stats?owner=x", **kwargs).status_code, 400)
+
+            # cached result refreshes when a report changes
+            (folder / "meta.json").write_text(json.dumps(report(today, 14, 0, "낮 알림장")), encoding="utf-8")
+            os.utime(folder / "meta.json", ns=(1, 2))
+            self.assertEqual(client.get("/api/stats?days=30", **kwargs).json["timing"]["flagged"], [])
 
             # 확인함 check
             res = client.post("/api/stats/review", json={"key": "reports/1/5", "reviewed": True}, **kwargs)

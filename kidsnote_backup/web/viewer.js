@@ -34,7 +34,7 @@ let backupWasRunning = false;
 let lastBackupInfo = null;
 let toastTimer = null;
 let hideCompletedSupplies = false;
-let hideReviewedFlags = false;
+let showReviewedFlags = false;
 
 // Lightbox state
 let lightboxItems = [];
@@ -639,7 +639,7 @@ async function renderItem(key, signal) {
   if (data.home_note) {
     const note = element("div", "home-note");
     const meta = element("div", "supply-meta");
-    for (const label of data.home_note.labels) meta.append(element("span", "kind-badge warn-badge", label));
+    for (const label of data.home_note.labels) meta.append(element("span", "kind-badge soft-badge", label));
     note.append(meta);
     if (data.home_note.memo) note.append(element("p", "prose", data.home_note.memo));
     article.append(section("🏠 이날 집에서 남긴 기록", note));
@@ -998,7 +998,11 @@ async function renderCalendar(params, signal) {
   main.replaceChildren(element("h2", "section-heading", labels.calendar), controls, wrapper);
 }
 
-// ------------------------------------------------------------------ Stats (이상징후 참고 지표)
+// ------------------------------------------------------------------ Stats (통계분석)
+//
+// A place for parents to notice small changes in their child's day. Every
+// indicator here is a gentle prompt to look again or ask the teacher, never a
+// judgement about the teacher.
 
 const STAT_PERIOD_LIST = [
   { id: "30", name: "최근 30일" }, { id: "90", name: "최근 90일" }, { id: "180", name: "최근 6개월" },
@@ -1006,44 +1010,91 @@ const STAT_PERIOD_LIST = [
 ];
 const FLAG_FILTERS = [
   { id: "", name: "전체" }, { id: "shift", name: "평소와 다른 시간" }, { id: "extended", name: "연장·통합보육" },
-  { id: "after", name: "보육시간 외" }, { id: "before", name: "보육 전" }, { id: "late", name: "늦은 업로드" },
+  { id: "after", name: "보육시간 이후" }, { id: "before", name: "보육 시작 전" }, { id: "late", name: "날짜보다 늦게" },
 ];
-const PARENT_GUIDE = [
+const STAT_GUIDE = [
   {
-    title: "🌅 등원할 때 확인해 주세요",
+    title: "이 탭은 이렇게 써요",
     items: [
-      "아이 몸 상태(얼굴·팔·다리 상처, 체온, 기분)를 한 번 살펴보고, 이미 있던 상처는 사진으로 남겨 두세요.",
-      "등원 차량·현관에서 유독 심하게 울거나 특정 선생님을 피하지는 않는지 지켜봐 주세요.",
-      "밤잠·아침 식사·컨디션을 선생님께 짧게 전달하면 이후 알림장 내용과 비교하기 쉬워요.",
+      "하원 후 집에서 살펴본 내용은 '하원 후 기록'에 남겨 두세요. 같은 날 알림장을 열면 함께 보여요.",
+      "'한 번 더 살펴볼 알림장'은 올라온 시간만 보고 고른 목록이에요. 열어 보고 괜찮으면 '확인함'을 눌러 정리하세요.",
+      "여기 보이는 숫자와 목록은 모두 참고 자료예요. 선생님을 평가하거나 어떤 일이 있었다고 판단하는 기준이 아니에요.",
+      "하원 후 기록과 확인 표시는 이 Home Assistant 안에만 저장되고 다른 곳으로 보내지 않아요.",
     ],
   },
   {
-    title: "🏠 하원 후 집에서 확인해 주세요",
+    title: "등원할 때 살펴보기",
     items: [
-      "목욕이나 옷 갈아입을 때 등·엉덩이·팔 안쪽·머리처럼 잘 보이지 않는 곳에 멍이나 긁힌 자국이 없는지 확인해 주세요.",
-      "새 상처가 있으면 날짜가 보이게 사진을 찍고, 다음 날 어린이집에 경위를 물어 기록해 두세요.",
-      "갑자기 낮잠·식사를 거부하거나, 깜짝 놀라는 반응, 특정 놀이(때리기·재우기 흉내)를 반복하는지도 살펴봐 주세요.",
-      "알림장 내용(잘 잤어요·잘 먹었어요)과 아이의 실제 컨디션이 자주 어긋나는지 함께 비교해 보세요.",
+      "얼굴·팔·다리에 상처가 있는지, 체온과 기분은 어떤지 가볍게 살펴봐 주세요. 이미 있던 상처는 사진으로 남겨 두면 좋아요.",
+      "밤잠이나 아침 식사, 컨디션을 선생님께 짧게 전해 주시면 선생님이 하루를 돌보는 데도 도움이 돼요.",
+      "등원할 때 유난히 오래 울거나 들어가기 싫어하는 날이 이어지는지 지켜봐 주세요.",
     ],
   },
-];
-const CCTV_GUIDE = [
-  "보관 기간: 어린이집 CCTV 영상은 60일 이상 보관해야 해요. 휴원일을 빼면 실제로 볼 수 있는 기간이 더 짧을 수 있으니, 의심이 들면 바로 요청하세요.",
-  "요청 방법: 어린이집에 「영상정보 열람 요청서」(또는 의사소견서)를 서면으로 내요. 서식은 어린이집이나 보건복지부 「보육사업안내」에서 받을 수 있어요.",
-  "어린이집 회신: 요청을 받은 날부터 10일 안에 열람 장소·일시를 알려줘야 해요. 거부한다면 그 사유를 10일 안에 서면으로 알려야 해요.",
-  "열람할 때: 신분증과 가족관계증명서처럼 보호자임을 확인할 서류를 챙기세요. 비밀유지 서약서를 요청받을 수 있어요.",
-  "거부되면: 정당한 사유 없이 열람을 거부하면 과태료 대상이에요. 관할 시·군·구 보육 담당 부서에 상담·신고할 수 있어요.",
-];
-const REPORT_GUIDE = [
-  "아동학대가 의심되면 112에 신고하세요. 신고자 신분은 보호돼요.",
-  "법령은 바뀔 수 있으니 정확한 내용은 국가법령정보센터의 「영유아보육법」 제15조의4·제15조의5와 시행규칙에서 확인하세요.",
+  {
+    title: "하원 후 집에서 살펴보기",
+    items: [
+      "목욕하거나 옷을 갈아입힐 때 등·엉덩이·팔 안쪽·머리처럼 잘 보이지 않는 곳도 함께 살펴봐 주세요.",
+      "새로 생긴 상처가 있으면 날짜가 보이게 사진을 찍고, 다음 날 선생님께 어떻게 다쳤는지 여쭤봐 주세요.",
+      "갑자기 낮잠이나 식사를 거부하는지, 쉽게 놀라는지, 놀이 속에서 낯선 행동을 반복하는지도 살펴봐 주세요.",
+      "알림장 내용과 집에서 본 아이 모습이 자주 다르다면 기록해 두었다가 선생님과 이야기해 보세요.",
+    ],
+  },
+  {
+    title: "선생님과 이야기할 때",
+    items: [
+      "궁금한 점은 날짜와 상황을 구체적으로 적어 차분히 여쭤보세요. 대부분은 대화로 금방 풀려요.",
+      "평소 고마운 마음을 자주 전하면 선생님도 아이의 작은 소식을 더 편하게 나눠 주세요.",
+    ],
+  },
+  {
+    title: "어린이집 CCTV 열람 방법",
+    items: [
+      "보관 기간: 어린이집 CCTV 영상은 60일 이상 보관해야 해요. 휴원일을 빼면 실제로 확인할 수 있는 기간이 더 짧을 수 있으니, 걱정되는 일이 있으면 미루지 말고 요청하세요.",
+      "요청 방법: 어린이집에 '영상정보 열람 요청서'(또는 의사소견서)를 서면으로 내요. 서식은 어린이집이나 보건복지부 '보육사업안내'에서 받을 수 있어요.",
+      "어린이집 회신: 요청을 받은 날부터 10일 안에 열람 장소와 일시를 알려줘야 해요. 열람을 거부한다면 그 사유도 10일 안에 서면으로 알려야 해요.",
+      "열람하러 갈 때: 신분증과 가족관계증명서처럼 보호자임을 확인할 서류를 챙기세요. 비밀유지 서약서 작성을 요청받을 수 있어요.",
+    ],
+  },
+  {
+    title: "도움이 필요할 때",
+    items: [
+      "정당한 사유 없이 열람을 거부당하면 관할 시·군·구 보육 담당 부서에 상담할 수 있어요.",
+      "아이가 위험하다고 느껴지면 망설이지 말고 112에 신고하세요. 신고한 사람의 신분은 보호돼요.",
+      "법령은 바뀔 수 있어요. 정확한 내용은 국가법령정보센터의 '영유아보육법' 제15조의4·제15조의5와 시행규칙에서 확인하세요.",
+    ],
+  },
 ];
 
-function statTile(label, value, hint) {
-  const node = element("div", "stat-tile");
+function statTile(label, value, hint, target) {
+  const node = element("button", "stat-tile");
+  node.type = "button";
   node.append(element("span", "stat-label", label), element("strong", "stat-value", value));
   if (hint) node.append(element("span", "stat-hint", hint));
+  node.addEventListener("click", () => {
+    const section = document.getElementById(target);
+    if (!section) return;
+    if (section.tagName === "DETAILS") section.open = true;
+    section.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
   return node;
+}
+
+function statCard(id, title, intro) {
+  const card = element("section", "stat-card");
+  card.id = id;
+  card.append(element("h3", "", title));
+  if (intro) card.append(element("p", "stat-hint", intro));
+  return card;
+}
+
+function foldCard(id, title, summaryText) {
+  const card = element("details", "stat-card stat-fold");
+  card.id = id;
+  const summary = element("summary");
+  summary.append(element("span", "fold-title", title));
+  if (summaryText) summary.append(element("span", "fold-sub", summaryText));
+  card.append(summary);
+  return card;
 }
 
 function guideList(title, items) {
@@ -1077,66 +1128,102 @@ function todayKst() {
   return new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
 }
 
-function homeNotesSection(data) {
-  const box = element("section", "stat-card");
-  box.append(element("h3", "", "🏠 하원 후 기록"));
-  box.append(element("p", "stat-hint",
-    "집에서 확인한 내용을 날짜별로 남겨 두세요. 같은 날 알림장을 열면 이 기록이 함께 보여서 비교하기 쉬워요."));
-  const flags = (data.home_flags || []).map(flag => [flag.id, flag.label]);
+function barChart(className, columns, label) {
+  const peak = Math.max(...columns.map(col => col.value), 1);
+  const chart = element("div", className);
+  chart.setAttribute("role", "img");
+  chart.setAttribute("aria-label", label);
+  for (const col of columns) {
+    const node = element("div", "bar-col " + (col.className || ""));
+    node.title = col.title;
+    const track = element("span", "bar-track");
+    const bar = element("span", "bar-fill");
+    bar.style.height = (col.value / peak * 100) + "%";
+    track.append(bar);
+    node.append(element("span", "bar-count", col.value ? String(col.value) : ""), track,
+      element("span", "bar-label", col.label));
+    chart.append(node);
+  }
+  return chart;
+}
+
+function homeNotesSection(data, state) {
+  const card = statCard("stat-notes", "🏠 하원 후 기록",
+    "집에서 살펴본 아이 모습을 날짜별로 남겨 두세요. 같은 날 알림장을 열면 이 기록이 함께 보여요.");
   let notes = data.notes || [];
+  let showAll = false;
 
   const form = element("form", "note-form");
   const dateInput = element("input");
   dateInput.type = "date";
   dateInput.max = todayKst();
   dateInput.value = todayKst();
-  const flagBoxes = element("div", "chip-row note-flags");
+  const flagBox = element("fieldset", "note-flags");
+  flagBox.append(element("legend", "", "오늘 눈에 띈 점 (해당하는 것만)"));
   const boxes = new Map();
-  for (const [id, label] of flags) {
+  for (const flag of data.home_flags || []) {
     const chip = element("label", "chip check-chip");
     const input = element("input");
     input.type = "checkbox";
-    input.value = id;
-    chip.append(input, element("span", "", label));
-    boxes.set(id, input);
-    flagBoxes.append(chip);
+    input.value = flag.id;
+    chip.append(input, element("span", "", flag.label));
+    boxes.set(flag.id, input);
+    flagBox.append(chip);
   }
   const memo = element("textarea");
   memo.rows = 3;
   memo.maxLength = 1000;
-  memo.placeholder = "예: 왼쪽 팔 안쪽에 작은 멍. 물어보니 친구랑 부딪혔다고 함. 내일 선생님께 여쭤보기.";
+  memo.placeholder = "예: 오늘은 낮잠을 짧게 잤대요. 저녁을 평소보다 잘 먹었어요.";
   const save = element("button", "primary-btn", "저장");
   save.type = "submit";
-  const remove = button("삭제", () => submit(true), "secondary-btn");
+  // A second tap confirms; native confirm() dialogs are blocked in some app webviews.
+  let removeArmed = null;
+  const remove = button("이 날짜 기록 지우기", () => {
+    if (removeArmed) {
+      clearTimeout(removeArmed);
+      removeArmed = null;
+      submit(true);
+      return;
+    }
+    remove.textContent = "한 번 더 누르면 지워져요";
+    removeArmed = setTimeout(() => { removeArmed = null; remove.textContent = "이 날짜 기록 지우기"; }, 4000);
+  }, "secondary-btn");
   const actions = element("div", "note-actions");
   actions.append(save, remove);
-  form.append(field("날짜", dateInput), flagBoxes, field("메모", memo), actions);
+  form.append(field("날짜", dateInput), flagBox, field("메모", memo), actions);
 
   function load(day) {
     const note = notes.find(entry => entry.date === day);
     for (const [id, input] of boxes) input.checked = Boolean(note && note.flags.includes(id));
     memo.value = note ? note.memo : "";
     remove.hidden = !note;
+    if (removeArmed) { clearTimeout(removeArmed); removeArmed = null; }
+    remove.textContent = "이 날짜 기록 지우기";
+    save.textContent = note ? "수정 저장" : "저장";
   }
   dateInput.addEventListener("change", () => load(dateInput.value));
 
   async function submit(clear) {
     if (!dateInput.value) return;
-    const payload = {
-      owner: data.owner, date: dateInput.value,
-      flags: clear ? [] : [...boxes].filter(([, input]) => input.checked).map(([id]) => id),
-      memo: clear ? "" : memo.value,
-    };
+    const flags = [...boxes].filter(([, input]) => input.checked).map(([id]) => id);
+    if (!clear && !flags.length && !memo.value.trim()) {
+      showToast("눈에 띈 점을 고르거나 메모를 적어 주세요.");
+      return;
+    }
     save.disabled = true;
     try {
-      const res = await post("home-notes", payload);
+      const res = await post("home-notes", {
+        owner: data.owner, date: dateInput.value,
+        flags: clear ? [] : flags, memo: clear ? "" : memo.value,
+      });
       if (!res.ok) throw new Error("save failed");
       notes = res.data.notes;
-      showToast(clear ? "기록을 삭제했어요." : "기록을 저장했어요.");
+      state.onNotes(notes.length);
+      showToast(clear ? "기록을 지웠어요." : "기록을 저장했어요.");
       load(dateInput.value);
       drawList();
     } catch {
-      showToast("기록을 저장하지 못했습니다.");
+      showToast("기록을 저장하지 못했어요. 잠시 후 다시 시도해 주세요.");
     } finally {
       save.disabled = false;
     }
@@ -1149,209 +1236,96 @@ function homeNotesSection(data) {
       list.replaceChildren(element("p", "stat-hint", "아직 남긴 기록이 없어요."));
       return;
     }
-    list.replaceChildren(element("h4", "", "최근 기록"), ...notes.slice(0, 20).map(note => {
+    const visible = showAll ? notes : notes.slice(0, 5);
+    const rows = visible.map(note => {
       const row = element("div", "stat-row");
       const meta = element("div", "supply-meta");
       meta.append(time(note.date));
-      for (const label of note.labels) meta.append(element("span", "kind-badge warn-badge", label));
+      for (const label of note.labels) meta.append(element("span", "kind-badge soft-badge", label));
       meta.append(button("수정", () => {
         dateInput.value = note.date;
         load(note.date);
         form.scrollIntoView({ behavior: "smooth", block: "center" });
-      }, "chip"));
+        memo.focus({ preventScroll: true });
+      }, "chip row-action"));
       row.append(meta);
       if (note.memo) row.append(element("p", "rep-text", note.memo));
       return row;
-    }));
+    });
+    list.replaceChildren(element("h4", "", "최근 기록"), ...rows);
+    if (notes.length > 5) {
+      list.append(button(showAll ? "접기" : "기록 " + notes.length + "개 모두 보기", () => {
+        showAll = !showAll;
+        drawList();
+      }, "secondary-btn more-btn"));
+    }
   }
   load(dateInput.value);
   drawList();
-  box.append(form, list);
-  return box;
+  card.append(form, list);
+  return card;
 }
 
 function lifeSection(life) {
-  const box = element("section", "stat-card");
-  box.append(element("h3", "", "🌡️ 생활기록 변화"));
-  box.append(element("p", "stat-hint",
-    "알림장 생활기록에서 " + life.labels.join("·") + "이(가) 좋지 않았던 날을 주별로 셌어요. " +
-    "평소(주 " + life.usual + "회)보다 두 배 이상 많은 주를 표시해요."));
+  const card = statCard("stat-life", "🌡️ 아이 컨디션 변화",
+    "알림장 생활기록에서 " + life.labels.join("·") + "이 평소와 달랐던 날을 주별로 모았어요. " +
+    "평소보다 두 배 이상 많은 주는 색으로 표시해요. 그런 주에는 집에서도 피곤해하거나 아프지 않았는지 함께 살펴봐 주세요.");
   if (!life.recorded) {
-    box.append(message("이 기간 알림장에 생활기록(기분·식사·수면 등)이 없어요."));
-    return box;
+    card.append(message("이 기간 알림장에는 생활기록(기분·식사·낮잠 등)이 없어요."));
+    return card;
   }
-  const peak = Math.max(...life.weeks.map(week => week.total), 1);
-  const chart = element("div", "week-chart");
-  chart.setAttribute("role", "img");
-  chart.setAttribute("aria-label", "주별 좋지 않았던 기록 수: " +
-    life.weeks.map(week => week.week + " " + week.total + "회").join(", "));
-  for (const week of life.weeks) {
-    const col = element("div", "week-col" + (week.rising ? " is-rising" : ""));
-    col.title = week.week + " 주: " + (week.details.join(", ") || "없음") + " (알림장 " + week.reports + "건)";
-    const track = element("span", "hour-track");
-    const bar = element("span", "hour-bar");
-    bar.style.height = (week.total / peak * 100) + "%";
-    track.append(bar);
-    col.append(element("span", "hour-count", week.total ? String(week.total) : ""), track,
-      element("span", "hour-label", week.week.slice(5).replace("-", "/")));
-    chart.append(col);
-  }
-  box.append(chart);
+  const labelStep = Math.ceil(life.weeks.length / 8);
+  card.append(barChart("week-chart", life.weeks.map((week, index) => ({
+    value: week.total,
+    label: (life.weeks.length - 1 - index) % labelStep === 0 ? week.week.slice(5).replace("-", "/") : "",
+    className: week.rising ? "is-rising" : "",
+    title: week.week + " 주: " + (week.details.join(", ") || "특이사항 없음") + " (알림장 " + week.reports + "건)",
+  })), "주별 컨디션 변화 횟수: " + life.weeks.map(week => week.week + " " + week.total + "회").join(", ")));
   if (life.rising.length) {
-    box.append(element("h4", "", "평소보다 많았던 주"));
+    card.append(element("h4", "", "평소보다 많았던 주"));
     for (const week of [...life.rising].reverse()) {
       const row = element("div", "stat-row");
       const meta = element("div", "supply-meta");
-      meta.append(element("span", "kind-badge warn-badge", week.week + " 주"), element("span", "", "알림장 " + week.reports + "건"));
+      meta.append(element("span", "kind-badge soft-badge", week.week + " 주"), element("span", "", "알림장 " + week.reports + "건"));
       row.append(meta, element("p", "rep-text", week.details.join(", ")));
-      box.append(row);
+      card.append(row);
     }
   } else {
-    box.append(element("p", "stat-verdict", "평소보다 눈에 띄게 많았던 주는 없어요."));
+    card.append(element("p", "stat-verdict", "이 기간에는 평소보다 눈에 띄게 많았던 주가 없어요."));
   }
-  return box;
+  return card;
 }
 
-function photoSection(photos) {
-  const box = element("section", "stat-card");
-  box.append(element("h3", "", "📷 사진 공백"));
-  if (!photos.days) {
-    box.append(message("이 기간에 사진이 올라온 날이 없어요."));
-    return box;
-  }
-  box.append(element("p", "stat-hint",
-    "앨범이나 알림장에 사진이 올라온 날은 " + photos.days + "일이에요(마지막 " + photos.last + "). " +
-    "평일 기준으로 사진이 평소보다 오래 올라오지 않은 기간을 보여 드려요. 방학·휴원·결석일도 포함될 수 있어요."));
-  if (!photos.gaps.length) {
-    box.append(element("p", "stat-verdict", "사진이 오래 비어 있던 기간은 없어요."));
-    return box;
-  }
-  for (const gap of photos.gaps) {
-    const row = element("div", "stat-row");
-    const meta = element("div", "supply-meta");
-    meta.append(element("span", "kind-badge warn-badge", "평일 " + gap.weekdays + "일"));
-    meta.append(document.createTextNode(gap.after + " 이후 " + (gap.until ? gap.until + "까지" : "지금까지") + " 사진 없음"));
-    row.append(meta);
-    box.append(row);
-  }
-  return box;
-}
-
-async function renderStats(params, signal) {
-  const owner = params.get("owner") || "";
-  const days = params.get("days") || "90";
-  let flagFilter = params.get("flag") || "";
-  const data = await get("stats", { ...(owner ? { owner } : {}), days }, signal);
-  if (signal.aborted) return;
-
-  function hashFor(nextOwner, nextDays, nextFlag) {
-    const q = new URLSearchParams();
-    if (nextOwner) q.set("owner", nextOwner);
-    if (nextDays && nextDays !== "90") q.set("days", nextDays);
-    if (nextFlag) q.set("flag", nextFlag);
-    return "stats" + (q.size ? "?" + q : "");
-  }
-  lastList = hashFor(data.owner, data.days, flagFilter);
-
-  const nodes = [element("h2", "section-heading", labels.stats)];
-  nodes.push(element("p", "stat-intro",
-    "알림장이 올라온 시간과 문장 반복을 살펴, 다시 확인해 볼 만한 알림장을 골라 드려요. " +
-    "학대 여부를 판정하는 기능은 아니에요. 평소와 다른 신호를 놓치지 않도록 돕는 참고 지표예요."));
-
-  const controls = element("div", "filters");
-  const ownerSelect = element("select");
-  fillSelect(ownerSelect, data.owners, data.owner);
-  const periodSelect = element("select");
-  fillSelect(periodSelect, STAT_PERIOD_LIST, data.days);
-  const go = () => { location.hash = hashFor(ownerSelect.value, periodSelect.value, flagFilter); };
-  ownerSelect.addEventListener("change", go);
-  periodSelect.addEventListener("change", go);
-  if (data.owners.length > 1) controls.append(field("자녀", ownerSelect));
-  controls.append(field("기간", periodSelect));
-  nodes.push(controls);
-
-  const guide = element("details", "stat-guide");
-  guide.open = true;
-  guide.append(element("summary", "", "👪 부모님 체크 안내 · CCTV 열람 방법"));
-  const guideBody = element("div", "guide-grid");
-  for (const block of PARENT_GUIDE) guideBody.append(guideList(block.title, block.items));
-  guideBody.append(guideList("📹 CCTV 열람 신청 방법과 보관 기간", CCTV_GUIDE));
-  guideBody.append(guideList("☎️ 신고·상담", REPORT_GUIDE));
-  guide.append(guideBody);
-  nodes.push(guide);
-  if (data.owner) nodes.push(homeNotesSection(data));
-
-  if (!data.total) {
-    nodes.push(message("이 기간에 분석할 알림장이 없습니다."));
-    main.replaceChildren(...nodes);
-    return;
-  }
-
+function timingSection(data, state) {
   const timing = data.timing;
-  const rep = data.repetition;
-  const tiles = element("div", "stat-tiles");
-  tiles.append(
-    statTile("분석한 알림장", data.total + "건", timing.untimed ? "업로드 시각 없음 " + timing.untimed + "건" : ""),
-    statTile("평소 업로드 시각", timing.baseline ? timing.baseline.median : "—",
-      timing.baseline ? "보통 ±" + timing.baseline.spread + "분" : "기준을 잡으려면 8건 이상 필요"),
-    statTile("다시 볼 알림장", timing.flagged_total + "건", "시간대·늦은 업로드 기준"),
-    statTile("반복 문장 비율", Math.round(rep.average_ratio * 100) + "%", "다른 알림장과 똑같은 문장"),
-  );
-  nodes.push(tiles);
-
-  const histSection = element("section", "stat-card");
-  histSection.append(element("h3", "", "⏰ 알림장 업로드 시간 분포"));
+  const card = statCard("stat-timing", "🔎 한 번 더 살펴볼 알림장",
+    "선생님들은 수업·행사·상담 일정에 따라 알림장을 평소와 다른 시간에 쓰기도 해요. 대부분 자연스러운 일이니, " +
+    "그날 아이 컨디션과 함께 가볍게 살펴보고 '확인함'을 눌러 정리해 주세요.");
   if (!timing.timed) {
-    histSection.append(message("백업된 알림장에 업로드 시각 정보가 없습니다."));
-  } else {
-    const peak = Math.max(...timing.hist, 1);
-    const chart = element("div", "hour-chart");
-    chart.setAttribute("role", "img");
-    chart.setAttribute("aria-label", "시간대별 업로드 건수: " +
-      timing.hist.map((count, hour) => count ? hour + "시 " + count + "건" : "").filter(Boolean).join(", "));
-    timing.hist.forEach((count, hour) => {
-      const col = element("div", "hour-col band-" + hourBand(hour));
-      col.title = hour + "시대 " + count + "건";
-      const track = element("span", "hour-track");
-      const bar = element("span", "hour-bar");
-      bar.style.height = (count / peak * 100) + "%";
-      track.append(bar);
-      col.append(element("span", "hour-count", count ? String(count) : ""), track,
-        element("span", "hour-label", hour % 3 === 0 ? String(hour) : ""));
-      chart.append(col);
-    });
-    histSection.append(chart);
-    const legend = element("ul", "band-legend");
-    for (const band of timing.bands) {
-      const li = element("li", "band-" + band.id);
-      li.append(element("span", "band-swatch"), document.createTextNode(band.label + " " + band.count + "건"));
-      if (band.check && band.count) li.append(element("span", "kind-badge warn-badge", "확인"));
-      legend.append(li);
-    }
-    histSection.append(legend);
-    histSection.append(element("p", "stat-hint",
-      "업로드 시각은 키즈노트 서버에 기록된 작성 시각이에요. 낮잠 시간(기본보육)에 몰아서 쓰는 경우가 많고, " +
-      "연장·통합보육이나 보육시간 외에 올라온 알림장은 작성 경위를 한 번 더 살펴볼 만해요."));
+    card.append(message("백업된 알림장에 올라온 시각 정보가 없어서 이 기능을 쓸 수 없어요."));
+    return card;
   }
-  nodes.push(histSection);
+  if (timing.baseline) {
+    card.append(element("p", "stat-verdict",
+      "이 기간 알림장은 보통 " + timing.baseline.median + " 무렵에 올라왔어요."));
+  } else {
+    card.append(element("p", "stat-hint",
+      "알림장이 8건 이상 쌓이면 평소 올라오는 시간을 계산해 비교해 드려요. 지금은 시간대만 보고 골랐어요."));
+  }
 
-  const flagSection = element("section", "stat-card");
-  flagSection.append(element("h3", "", "🔎 평소와 다른 시간대에 올라온 알림장 (" + timing.flagged_total + "건)"));
-  flagSection.append(element("p", "stat-hint",
-    "선생님 일정에 따라 업로드 시간은 매번 달라질 수 있어요. 알림장을 열어 보고 괜찮으면 '확인함'에 체크해 두세요. " +
-    "'확인한 항목 숨기기'를 켜면 아직 안 본 것만 남아요."));
-  const reviewed = new Set(data.reviewed || []);
+  const reviewed = state.reviewed;
+  const toolbar = element("div", "supplies-toolbar");
+  const summary = element("span", "supplies-summary");
+  const toggle = element("label", "toggle-label");
+  const toggleBox = element("input");
+  toggleBox.type = "checkbox";
+  toggleBox.checked = showReviewedFlags;
+  toggleBox.addEventListener("change", () => { showReviewedFlags = toggleBox.checked; draw(); });
+  toggle.append(toggleBox, element("span", "", "확인한 알림장도 보기"));
+  toolbar.append(summary, toggle);
   const chips = element("div", "chip-row");
-  const flagList = element("div");
-  const reviewToolbar = element("div", "supplies-toolbar");
-  const reviewSummary = element("span", "supplies-summary");
-  const hideToggle = element("label", "toggle-label");
-  const hideBox = element("input");
-  hideBox.type = "checkbox";
-  hideBox.checked = hideReviewedFlags;
-  hideBox.addEventListener("change", () => { hideReviewedFlags = hideBox.checked; drawFlags(); });
-  hideToggle.append(hideBox, element("span", "", "확인한 항목 숨기기"));
-  reviewToolbar.append(reviewSummary, hideToggle);
+  const list = element("div");
+
   function reviewBox(entry) {
     const label = element("label", "review-check");
     const box = element("input");
@@ -1360,47 +1334,51 @@ async function renderStats(params, signal) {
     box.addEventListener("change", async () => {
       const next = box.checked;
       if (next) reviewed.add(entry.key); else reviewed.delete(entry.key);
-      drawFlags();
+      draw();
+      state.onChange();
       try {
         const res = await post("stats/review", { key: entry.key, reviewed: next });
         if (!res.ok) throw new Error("save failed");
+        if (next && !showReviewedFlags) showToast("확인했어요. '확인한 알림장도 보기'에서 다시 볼 수 있어요.");
       } catch {
         if (next) reviewed.delete(entry.key); else reviewed.add(entry.key);
-        drawFlags();
-        showToast("확인 상태를 저장하지 못했습니다.");
+        draw();
+        state.onChange();
+        showToast("확인 표시를 저장하지 못했어요.");
       }
     });
     label.append(box, element("span", "", "확인함"));
     return label;
   }
-  function drawFlags() {
-    const open = timing.flagged.filter(f => !reviewed.has(f.key)).length;
-    reviewSummary.replaceChildren(document.createTextNode("아직 확인 안 함 "), element("strong", "", open + "건"),
-      document.createTextNode(" / 전체 " + timing.flagged.length + "건"));
-    chips.replaceChildren(...FLAG_FILTERS.map(option => {
-      const count = option.id ? timing.flagged.filter(f => f.tags.includes(option.id)).length : timing.flagged.length;
+
+  function draw() {
+    const open = timing.flagged.filter(f => !reviewed.has(f.key));
+    summary.replaceChildren(document.createTextNode("확인 전 "), element("strong", "", open.length + "건"),
+      document.createTextNode(" · 전체 " + timing.flagged.length + "건"));
+    const pool = showReviewedFlags ? timing.flagged : open;
+    if (!pool.some(f => !state.filter || f.tags.includes(state.filter))) state.filter = "";
+    chips.replaceChildren(...FLAG_FILTERS.flatMap(option => {
+      const count = option.id ? pool.filter(f => f.tags.includes(option.id)).length : pool.length;
+      if (option.id && !count) return [];
       const chip = button(option.name + " " + count, () => {
-        flagFilter = option.id;
-        lastList = hashFor(data.owner, data.days, flagFilter);
-        history.replaceState(null, "", "#" + lastList);
-        drawFlags();
-      }, "chip" + (flagFilter === option.id ? " is-active" : ""));
-      chip.setAttribute("aria-pressed", String(flagFilter === option.id));
-      return chip;
+        state.filter = option.id;
+        state.saveHash();
+        draw();
+      }, "chip" + (state.filter === option.id ? " is-active" : ""));
+      chip.setAttribute("aria-pressed", String(state.filter === option.id));
+      return [chip];
     }));
-    const visible = timing.flagged.filter(f =>
-      (!flagFilter || f.tags.includes(flagFilter)) && !(hideReviewedFlags && reviewed.has(f.key)));
+    chips.hidden = pool.length === 0;
+    const visible = pool.filter(f => !state.filter || f.tags.includes(state.filter));
     if (!visible.length) {
-      flagList.replaceChildren(message(
-        !timing.flagged.length ? "평소와 다른 시간대에 올라온 알림장이 없어요."
-          : hideReviewedFlags && !open ? "모두 확인했어요. 👍" : "해당하는 알림장이 없습니다."));
+      list.replaceChildren(message(timing.flagged.length
+        ? "모두 확인했어요. 고마워요! 🙂" : "이 기간에는 따로 살펴볼 알림장이 없어요."));
       return;
     }
-    flagList.replaceChildren(...visible.map(entry => {
-      const row = reportLink(entry, element("span", "kind-badge", "업로드 " + entry.uploaded));
+    list.replaceChildren(...visible.map(entry => {
+      const row = reportLink(entry, element("span", "kind-badge", entry.uploaded + " 올라옴"));
       row.classList.add("flag-row");
       if (reviewed.has(entry.key)) row.classList.add("is-reviewed");
-      if (entry.author) row.firstChild.append(element("span", "", entry.author));
       row.firstChild.append(reviewBox(entry));
       const reasons = element("ul", "reason-list");
       for (const reason of entry.reasons) reasons.append(element("li", "", reason));
@@ -1408,80 +1386,185 @@ async function renderStats(params, signal) {
       return row;
     }));
   }
-  drawFlags();
-  flagSection.append(reviewToolbar, chips, flagList);
+  draw();
+  card.append(toolbar, chips, list);
   if (timing.flagged_total > timing.flagged.length) {
-    flagSection.append(element("p", "stat-hint", "최근 " + timing.flagged.length + "건만 표시했어요."));
+    card.append(element("p", "stat-hint", "최근 " + timing.flagged.length + "건까지만 보여 드려요. 기간을 줄이면 더 오래된 알림장도 볼 수 있어요."));
   }
-  nodes.push(flagSection);
-  nodes.push(lifeSection(data.life), photoSection(data.photos));
 
-  const repSection = element("section", "stat-card");
-  repSection.append(element("h3", "", "📝 동일 문장·유사 알림장 검사"));
-  repSection.append(element("p", "stat-verdict", rep.verdict));
-  const repFacts = element("dl", "facts");
+  const chartBox = element("details", "inner-fold");
+  chartBox.append(element("summary", "", "시간대별로 언제 올라왔는지 보기"));
+  chartBox.append(barChart("hour-chart", timing.hist.map((count, hour) => ({
+    value: count,
+    label: hour % 3 === 0 ? String(hour) : "",
+    className: "band-" + hourBand(hour),
+    title: hour + "시대 " + count + "건",
+  })), "시간대별 알림장 수: " + timing.hist.map((count, hour) => count ? hour + "시 " + count + "건" : "").filter(Boolean).join(", ")));
+  const legend = element("ul", "band-legend");
+  for (const band of timing.bands) {
+    const li = element("li", "band-" + band.id);
+    li.append(element("span", "band-swatch"), document.createTextNode(band.label + " " + band.count + "건"));
+    legend.append(li);
+  }
+  chartBox.append(legend, element("p", "stat-hint",
+    "올라온 시각은 키즈노트에 기록된 작성 시각이에요. 보통 아이들이 낮잠 자는 시간에 몰아서 쓰는 경우가 많아요."));
+  card.append(chartBox);
+  return card;
+}
+
+function photoSection(photos) {
+  const card = statCard("stat-photos", "📷 사진이 뜸했던 기간",
+    "앨범이나 알림장에 사진이 평일 기준으로 평소보다 오래 올라오지 않은 기간이에요. " +
+    "방학·휴원·결석이나 행사 준비로 자연스럽게 생기기도 해요.");
+  if (!photos.days) {
+    card.append(message("이 기간에는 사진이 올라온 날이 없어요."));
+    return card;
+  }
+  card.append(element("p", "stat-hint", "사진이 올라온 날 " + photos.days + "일 · 마지막 사진 " + photos.last));
+  if (!photos.gaps.length) {
+    card.append(element("p", "stat-verdict", "사진이 오래 비었던 기간은 없어요."));
+    return card;
+  }
+  for (const gap of photos.gaps) {
+    const row = element("div", "stat-row");
+    const meta = element("div", "supply-meta");
+    meta.append(element("span", "kind-badge soft-badge", "평일 " + gap.weekdays + "일"),
+      document.createTextNode(gap.after + " 이후 " + (gap.until ? gap.until + "까지" : "지금까지")));
+    row.append(meta);
+    card.append(row);
+  }
+  return card;
+}
+
+function lengthVariety(cv) {
+  if (cv === null || cv === undefined) return "알림장이 더 쌓이면 보여 드려요";
+  if (cv < 0.15) return "매번 비슷한 길이예요";
+  if (cv < 0.35) return "적당히 달라요";
+  return "날마다 다양해요";
+}
+
+function patternSection(data) {
+  const rep = data.repetition;
+  const card = foldCard("stat-pattern", "📝 알림장 문장 살펴보기", rep.verdict);
+  const body = element("div", "fold-body");
+  body.append(element("p", "stat-hint",
+    "여러 아이의 알림장을 함께 쓰다 보면 인사말이나 공통 안내 문구가 반복되는 건 자연스러워요. " +
+    "반복이 많다고 정성이 부족하다는 뜻은 아니에요. 사람이 썼는지 AI의 도움을 받았는지는 글만으로 가려낼 수 없어서, " +
+    "여기서는 판단하지 않고 반복과 길이 변화만 보여 드려요. 아이 이름만 다른 문장은 같은 문장으로 셌어요."));
+  const facts = element("dl", "facts");
   for (const [label, value] of [
-    ["반복 문장 비율 (평균)", Math.round(rep.average_ratio * 100) + "%"],
-    ["거의 똑같은 알림장 쌍", rep.pairs_total + "쌍"],
-    ["글 길이 들쭉날쭉함", rep.length_cv === null ? "—" : String(rep.length_cv)],
-    ["문장 길이 들쭉날쭉함", rep.sentence_cv === null ? "—" : String(rep.sentence_cv)],
+    ["다른 알림장에도 있는 문장", Math.round(rep.average_ratio * 100) + "%"],
+    ["내용이 거의 같은 알림장", rep.pairs_total + "쌍"],
+    ["알림장 길이", lengthVariety(rep.length_cv)],
   ]) {
     const fact = element("div", "fact");
     fact.append(element("dt", "", label), element("dd", "", value));
-    repFacts.append(fact);
+    facts.append(fact);
   }
-  repSection.append(repFacts);
-  repSection.append(element("p", "stat-hint",
-    "사람이 쓴 글인지 AI가 쓴 글인지 확실하게 가려낼 방법은 없어요. 대신 같은 문장이 반복되는지, " +
-    "글·문장 길이가 지나치게 일정한지(들쭉날쭉함이 0에 가까울수록 일정함)를 보여 드려요. " +
-    "아이 이름만 바꾼 문장도 같은 문장으로 세요."));
+  body.append(facts);
 
   if (rep.sentences.length) {
-    const box = element("div", "rep-list");
-    box.append(element("h4", "", "자주 반복된 문장"));
-    for (const entry of rep.sentences) {
+    body.append(element("h4", "", "자주 쓰인 문장"));
+    for (const entry of rep.sentences.slice(0, 15)) {
       const row = element("div", "stat-row");
       const meta = element("div", "supply-meta");
-      meta.append(element("span", "kind-badge", entry.count + "회"));
+      meta.append(element("span", "kind-badge", entry.count + "번"));
       for (const ref of entry.reports.slice(0, 5)) meta.append(link(ref.date || "보기", "#item/" + ref.key, "date-link"));
       row.append(meta, element("p", "rep-text", entry.text));
-      box.append(row);
+      body.append(row);
     }
-    repSection.append(box);
   }
   if (rep.pairs.length) {
-    const box = element("div", "rep-list");
-    box.append(element("h4", "", "내용이 거의 같은 알림장"));
-    for (const pair of rep.pairs) {
+    body.append(element("h4", "", "내용이 거의 같은 알림장"));
+    for (const pair of rep.pairs.slice(0, 10)) {
       const row = element("div", "stat-row pair-row");
-      row.append(element("span", "kind-badge", "유사도 " + Math.round(pair.score * 100) + "%"),
+      row.append(element("span", "kind-badge", Math.round(pair.score * 100) + "% 비슷"),
         link((pair.a.date || "") + " " + (pair.a.title || ""), "#item/" + pair.a.key, "supply-link"),
         element("span", "pair-sep", "↔"),
         link((pair.b.date || "") + " " + (pair.b.title || ""), "#item/" + pair.b.key, "supply-link"));
-      box.append(row);
+      body.append(row);
     }
-    repSection.append(box);
   }
-  if (rep.reports.length) {
-    const box = element("div", "rep-list");
-    box.append(element("h4", "", "반복 문장이 많은 알림장"));
-    for (const entry of rep.reports) {
-      box.append(reportLink(entry, element("span", "kind-badge",
-        "반복 " + Math.round(entry.ratio * 100) + "% · " + entry.sentences + "문장")));
-    }
-    repSection.append(box);
-  }
-  nodes.push(repSection);
+  card.append(body);
+  return card;
+}
 
-  if (data.authors.length) {
-    const authSection = element("section", "stat-card");
-    authSection.append(element("h3", "", "👩‍🏫 작성자별 알림장 수"));
-    const list = element("ul", "author-list");
-    for (const entry of data.authors) list.append(element("li", "", entry.name + " · " + entry.count + "건"));
-    authSection.append(list);
-    nodes.push(authSection);
+function guideSection() {
+  const card = foldCard("stat-guide", "📖 이용 안내 · 아이 살피기 · CCTV 열람", "한 번만 읽어 두면 좋아요");
+  const grid = element("div", "fold-body guide-grid");
+  for (const block of STAT_GUIDE) grid.append(guideList(block.title, block.items));
+  card.append(grid);
+  return card;
+}
+
+async function renderStats(params, signal) {
+  const owner = params.get("owner") || "";
+  const days = params.get("days") || "90";
+  const data = await get("stats", { ...(owner ? { owner } : {}), days }, signal);
+  if (signal.aborted) return;
+
+  const state = { filter: params.get("flag") || "", reviewed: new Set(data.reviewed || []) };
+  function hashFor(nextOwner, nextDays, nextFlag) {
+    const q = new URLSearchParams();
+    if (nextOwner) q.set("owner", nextOwner);
+    if (nextDays && nextDays !== "90") q.set("days", nextDays);
+    if (nextFlag) q.set("flag", nextFlag);
+    return "stats" + (q.size ? "?" + q : "");
+  }
+  state.saveHash = () => {
+    lastList = hashFor(data.owner, data.days, state.filter);
+    history.replaceState(null, "", "#" + lastList);
+  };
+  lastList = hashFor(data.owner, data.days, state.filter);
+
+  const nodes = [element("h2", "section-heading", labels.stats)];
+  nodes.push(element("p", "stat-intro",
+    "알림장과 집에서 남긴 기록을 모아, 아이의 작은 변화를 놓치지 않도록 돕는 곳이에요. " +
+    "여기 보이는 내용은 참고 자료일 뿐 선생님을 평가하는 기준이 아니에요. 궁금한 점이 생기면 선생님께 편하게 여쭤보세요."));
+
+  const controls = element("div", "filters stat-filters");
+  const ownerSelect = element("select");
+  fillSelect(ownerSelect, data.owners, data.owner);
+  const periodSelect = element("select");
+  fillSelect(periodSelect, STAT_PERIOD_LIST, data.days);
+  const go = () => { location.hash = hashFor(ownerSelect.value, periodSelect.value, ""); };
+  ownerSelect.addEventListener("change", go);
+  periodSelect.addEventListener("change", go);
+  if (data.owners.length > 1) controls.append(field("아이", ownerSelect));
+  controls.append(field("기간", periodSelect));
+  nodes.push(controls);
+
+  if (!data.owner) {
+    nodes.push(message("아직 백업된 알림장이 없어요. 백업이 끝나면 이곳에서 볼 수 있어요."), guideSection());
+    main.replaceChildren(...nodes);
+    return;
   }
 
+  const tiles = element("div", "stat-tiles");
+  const timing = data.timing;
+  const openCount = () => timing.flagged.filter(f => !state.reviewed.has(f.key)).length;
+  const notesTile = statTile("하원 후 기록", (data.notes || []).length + "개", "집에서 남긴 기록", "stat-notes");
+  const reviewTile = statTile("살펴볼 알림장", timing.timed ? openCount() + "건" : "—",
+    timing.timed ? "확인 전 알림장" : "시각 정보 없음", "stat-timing");
+  state.onChange = () => {
+    if (timing.timed) reviewTile.querySelector(".stat-value").textContent = openCount() + "건";
+  };
+  state.onNotes = count => { notesTile.querySelector(".stat-value").textContent = count + "개"; };
+  tiles.append(
+    notesTile,
+    statTile("컨디션 변화", data.life.rising.length + "주", "평소보다 많았던 주", "stat-life"),
+    reviewTile,
+    statTile("사진 공백", data.photos.gaps.length + "번", "사진이 뜸했던 기간", "stat-photos"),
+  );
+  nodes.push(tiles);
+
+  nodes.push(homeNotesSection(data, state));
+  if (!data.total) {
+    nodes.push(message("이 기간에는 분석할 알림장이 없어요. 기간을 늘려 보세요."));
+  } else {
+    nodes.push(lifeSection(data.life), timingSection(data, state), photoSection(data.photos), patternSection(data));
+  }
+  nodes.push(guideSection());
   main.replaceChildren(...nodes);
 }
 

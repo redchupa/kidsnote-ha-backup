@@ -16,20 +16,25 @@ from supplies import KST, TEACHER_TYPES
 
 # Daycare time bands in minutes from midnight (KST).
 BANDS = (
-    ("before", "보육 전 (07:30 이전)", 0, 450),
+    ("before", "보육 시작 전 (~07:30)", 0, 450),
     ("morning", "등원 시간 (07:30–09:00)", 450, 540),
     ("core", "기본보육 (09:00–16:00)", 540, 960),
     ("extended", "연장·통합보육 (16:00–19:30)", 960, 1170),
-    ("after", "보육시간 외 (19:30 이후)", 1170, 1440),
+    ("after", "보육시간 이후 (19:30~)", 1170, 1440),
 )
 CHECK_BANDS = {"extended", "after", "before"}
+BAND_REASON = {
+    "before": "보육 시작 전(07:30 이전)에 올라왔어요",
+    "extended": "연장·통합보육 시간(16:00–19:30)에 올라왔어요",
+    "after": "보육시간이 끝난 뒤(19:30 이후)에 올라왔어요",
+}
 MIN_BASELINE = 8          # reports needed before "unusual for this teacher" is meaningful
 MIN_SHIFT_MINUTES = 90    # never call less than 1h30 off the usual time unusual
 LATE_DAYS = 2             # uploaded this many days after the date it describes
 MIN_SENTENCE = 8          # normalized characters; shorter lines are greetings
 NEAR_DUPLICATE = 0.7
-MAX_REPORTS = 400
-MAX_LIST = 60
+MAX_COMPARE = 400        # most recent reports compared pairwise for near-duplicates
+MAX_LIST = 200
 
 _SPLIT = re.compile(r"(?<=[.!?~♡♥])\s+|\n+")
 _NOISE = re.compile(r"[\W_]+", re.UNICODE)
@@ -106,16 +111,13 @@ def analyze(reports, child_name="", today: date | None = None, days: int | None 
         rows.append({
             "key": key, "item": item, "text": text, "date": written,
             "uploaded": uploaded_at(item),
-            "author": " ".join(str(author.get("name") or item.get("author_name") or "").split()),
             "title": " ".join(str(item.get("title") or "").split()) or (text.splitlines() or [""])[0][:60],
         })
     rows.sort(key=lambda row: (row["date"] or date.min, row["key"]), reverse=True)
-    rows = rows[:MAX_REPORTS]
     return {
         "total": len(rows),
         "timing": timing(rows),
         "repetition": repetition(rows, names),
-        "authors": authors(rows),
         "life": life_trend(rows),
         "photos": photo_gaps(photo_days, today or date.today(), oldest),
     }
@@ -141,21 +143,21 @@ def timing(rows):
         if baseline and abs(minute - baseline["median_minute"]) > baseline["limit"]:
             shift = minute - baseline["median_minute"]
             hours = abs(shift) / 60
-            reasons.append(f"평소({baseline['median']} 전후)보다 {hours:.1f}시간 {'늦게' if shift > 0 else '일찍'} 업로드")
+            reasons.append(f"평소({baseline['median']} 무렵)보다 {hours:.1f}시간 {'늦게' if shift > 0 else '일찍'} 올라왔어요")
             tags.append("shift")
         if band in CHECK_BANDS:
-            reasons.append(dict((b, label) for b, label, _, _ in BANDS)[band] + "에 업로드")
+            reasons.append(BAND_REASON[band])
             tags.append(band)
         if row["date"]:
             gap = (row["uploaded"].date() - row["date"]).days
             if gap >= LATE_DAYS:
-                reasons.append(f"알림장 날짜보다 {gap}일 늦게 업로드 (몰아쓰기 가능성)")
+                reasons.append(f"알림장 날짜보다 {gap}일 뒤에 올라왔어요")
                 tags.append("late")
         if reasons:
             flagged.append({
                 "key": row["key"], "date": row["date"].isoformat() if row["date"] else "",
                 "uploaded": row["uploaded"].strftime("%Y-%m-%d %H:%M"), "title": row["title"],
-                "author": row["author"], "reasons": reasons, "tags": tags,
+                "reasons": reasons, "tags": tags,
             })
     return {
         "timed": len(timed),
@@ -170,6 +172,7 @@ def timing(rows):
 
 
 def repetition(rows, names):
+    rows = rows[:MAX_COMPARE]
     seen = defaultdict(list)          # normalized sentence -> [(row index, original)]
     per_row = []
     for index, row in enumerate(rows):
@@ -201,15 +204,18 @@ def repetition(rows, names):
     average = statistics.mean(share for share, _, _ in ratios) if ratios else 0.0
 
     bodies = [shingles(normalize(row["text"], names)) for row in rows]
+    sizes = [len(body) for body in bodies]
     pairs = []
     for i in range(len(rows)):
-        if len(bodies[i]) < 20:
+        if sizes[i] < 20:
             continue
         for j in range(i + 1, len(rows)):
-            if len(bodies[j]) < 20:
+            small, large = sorted((sizes[i], sizes[j]))
+            # Jaccard can't reach the threshold when one set is much larger.
+            if small < 20 or small < NEAR_DUPLICATE * large:
                 continue
-            union = len(bodies[i] | bodies[j])
-            score = len(bodies[i] & bodies[j]) / union if union else 0
+            common = len(bodies[i] & bodies[j])
+            score = common / (sizes[i] + sizes[j] - common)
             if score >= NEAR_DUPLICATE:
                 pairs.append((score, i, j))
     pairs.sort(reverse=True)
@@ -224,13 +230,13 @@ def repetition(rows, names):
         return round(statistics.pstdev(values) / mean, 2) if mean else None
 
     if not ratios:
-        verdict = "분석할 문장이 부족합니다."
+        verdict = "살펴볼 문장이 아직 부족해요."
     elif average >= 0.5:
-        verdict = "같은 문장을 반복해 쓰는 비율이 높습니다. 템플릿·복사 작성이 많은 편입니다."
+        verdict = "자주 쓰이는 문장이 많은 편이에요. 같은 반 아이들 알림장을 함께 쓰다 보면 공통 문구가 생기곤 해요."
     elif average >= 0.2:
-        verdict = "일부 문장이 반복됩니다. 인사말·공통 안내 문구일 수 있습니다."
+        verdict = "일부 문장이 반복돼요. 대부분 인사말이나 공통 안내 문구예요."
     else:
-        verdict = "대부분 매번 다른 문장으로 작성되었습니다."
+        verdict = "대부분 그날그날 새로운 문장으로 쓰였어요."
 
     return {
         "average_ratio": round(average, 3),
@@ -321,8 +327,3 @@ def photo_gaps(photo_days, today: date, oldest: date | None):
         "weekdays": gap,
     } for gap, a, b in gaps if gap >= limit]
     return {"days": len(days), "gaps": shown[::-1][:20], "usual": usual, "last": days[-1].isoformat()}
-
-
-def authors(rows):
-    counts = Counter(row["author"] or "이름 없음" for row in rows)
-    return [{"name": name, "count": count} for name, count in counts.most_common()]
